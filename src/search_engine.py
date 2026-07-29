@@ -1,8 +1,8 @@
 import os
 import json
 import re
-import faiss
 import unicodedata
+import faiss
 import numpy as np
 from typing import List, Dict, Any, Optional
 from sentence_transformers import SentenceTransformer
@@ -16,24 +16,36 @@ class SearchEngine:
         self,
         index_path: str,
         metadata_path: str,
+        dict_path: Optional[str] = None,
         model_name: str = "BAAI/bge-m3",
         top_k_docs: int = 3,
         top_k_chunks: int = 10,
         max_words_per_chunk: int = 250,
+        device: Optional[str] = None,
     ):
         self.top_k_docs = top_k_docs
         self.top_k_chunks = top_k_chunks
         self.max_words_per_chunk = max_words_per_chunk
 
-        # Cargar Encoder
-        self.encoder = SentenceTransformer(model_name)
+        # 1. Determinar la ruta del diccionario (si no se pasa, busca en la misma carpeta que metadata_path)
+        if dict_path is None:
+            base_dir = os.path.dirname(metadata_path)
+            self.dict_path = os.path.join(base_dir, "dictionary.txt")
+        else:
+            self.dict_path = dict_path
 
-        # Cargar índice FAISS
+        # Variable privada para Carga Lazy
+        self._sym_spell: Optional[SymSpell] = None
+
+        # 2. Cargar Encoder semántico
+        self.encoder = SentenceTransformer(model_name, device=device)
+
+        # 3. Cargar índice FAISS
         if not os.path.exists(index_path):
             raise FileNotFoundError(f"Índice FAISS no encontrado en: {index_path}")
         self.index = faiss.read_index(index_path)
 
-        # Cargar almacenamiento de Metadatos
+        # 4. Cargar almacén de metadatos (JSONL)
         if not os.path.exists(metadata_path):
             raise FileNotFoundError(
                 f"Archivo metadata no encontrado en: {metadata_path}"
@@ -42,70 +54,76 @@ class SearchEngine:
         self.metadata: List[Dict[str, Any]] = []
         with open(metadata_path, "r", encoding="utf-8") as f:
             for line in f:
-                self.metadata.append(json.loads(line))
+                if line.strip():
+                    self.metadata.append(json.loads(line.strip()))
 
-        self.sym_spell = SymSpell(max_dictionary_edit_distance=2, prefix_length=7)
-        self._build_corpus_dictionary()
+    @property
+    def sym_spell(self) -> SymSpell:
+        """
+        Propiedad Lazy: Carga SymSpell en memoria solo la primera vez que se consulta.
+        Si existe el archivo 'dictionary.txt' precalculado, lo carga en milisegundos.
+        """
+        if self._sym_spell is None:
+            self._sym_spell = SymSpell(max_dictionary_edit_distance=2, prefix_length=7)
 
-    def _build_corpus_dictionary(self):
-        """
-        Crea el diccionario de SymSpell usando el texto real de los documentos.
-        """
-        for item in self.metadata:
-            text = item.get("texto", "")
-            if text:
-                self.sym_spell.create_dictionary_entry(text, count=1)
+            if os.path.exists(self.dict_path):
+                # Carga instantánea desde archivo en disco
+                self._sym_spell.load_dictionary(
+                    self.dict_path, term_index=0, count_index=1
+                )
+            else:
+                # Fallback: construir en memoria desde la metadata si no existe el archivo
+                for item in self.metadata:
+                    text = item.get("texto", item.get("text", ""))
+                    if text:
+                        self._sym_spell.create_dictionary_entry(text, count=1)
+
+        return self._sym_spell
 
     def preprocess_query(self, query_text: str) -> str:
         """
-        Limpia, normaliza y corrige ortográficamente la consulta sin usar LLMs.
-        1. Normalización Unicode (NFC) y limpieza de caracteres de control.
-        2. Preservación de puntuación básica en español.
-        3. Colapso de espacios múltiples.
-        4. Corrección ortográfica basada en el vocabulario del corpus con SymSpell.
+        Limpia, normaliza y corrige ortográficamente la consulta sin modelos generativos.
         """
         if not query_text or not isinstance(query_text, str):
             return ""
 
-        # Normalización Unicode (NFC)
+        # Normalización Unicode NFC
         text = unicodedata.normalize("NFC", query_text)
 
-        # Limpieza de saltos de línea, pestañas y caracteres de control
+        # Limpieza de saltos de línea y caracteres de control
         text = re.sub(r"[\r\n\t\x00-\x1f\x7f-\x9f]", " ", text)
 
-        # Retener caracteres alfanuméricos y puntuación estándar
-        text = re.sub(r"[^\w\s\dÁÉÍÓÚáéíóúÑñÜü.,?!¿¡\-]", " ", text)
+        # Retener caracteres alfanuméricos y puntuación
+        text = re.sub(r"[^\w\s\dÁÉÍÓÚáéíóúÑñÜüÃãÇçÂâÊêÔôÀà.,?!¿¡\-]", " ", text)
 
-        # Colapsar espacios múltiples
         cleaned = re.sub(r"\s+", " ", text).strip()
 
-        # Corrección ortográfica con SymSpell
-        if cleaned and hasattr(self, "sym_spell"):
+        # Aplicar SymSpell mediante la propiedad lazy
+        if cleaned:
             try:
-                # lookup_compound procesa frases completas con múltiples typos
                 suggestions = self.sym_spell.lookup_compound(
                     cleaned, max_edit_distance=2, ignore_non_words=True
                 )
                 if suggestions:
                     cleaned = suggestions[0].term
             except Exception:
-                # Fallback de seguridad
                 pass
 
         return cleaned
 
     def _vector_search(self, query_text: str, k: int = 50) -> List[Dict[str, Any]]:
-        """Codifica la consulta y ejecuta la búsqueda por producto interno en FAISS."""
-        # Generar embedding y normalizar para Similitud Coseno
-        vector = self.encoder.encode([query_text])
+        """Codifica la consulta y ejecuta búsqueda vectorial con similitud coseno."""
+        vector = self.encoder.encode([query_text], convert_to_numpy=True)
         faiss.normalize_L2(vector)
 
-        # Limitar K si hay menos elementos en el índice
         fetch_k = min(k, self.index.ntotal)
-        distances, index = self.index.search(vector, fetch_k)
+        if fetch_k == 0:
+            return []
+
+        distances, indices = self.index.search(vector, fetch_k)
 
         candidates = []
-        for idx, score in zip(index[0], distances[0]):
+        for idx, score in zip(indices[0], distances[0]):
             if idx != -1 and idx < len(self.metadata):
                 item = self.metadata[idx].copy()
                 item["score"] = float(score)
@@ -117,19 +135,16 @@ class SearchEngine:
         self, candidates: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Agrupa los scores de los chunks por doc_id usando Max Pooling
-        para seleccionar los Top 3 documentos más relevantes.
+        Agrupa scores por doc_id usando Max Pooling para obtener el Top 3.
         """
         doc_scores: Dict[str, float] = {}
 
         for cand in candidates:
             doc_id = cand["doc_id"]
             score = cand["score"]
-            # Max Pooling: Asignar la mayor puntuación de chunk al documento
             if doc_id not in doc_scores or score > doc_scores[doc_id]:
                 doc_scores[doc_id] = score
 
-        # Ordenar documentos por score
         sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
         top_docs = sorted_docs[: self.top_k_docs]
 
@@ -138,45 +153,34 @@ class SearchEngine:
             for rank, (doc_id, _) in enumerate(top_docs)
         ]
 
-    # TODO: arreglar y mejorar este metodo, revisar como se puede mejorar desde el chunk
     def _clip_text_smartly(self, text: str, max_words: int = 250) -> str:
         """
-        Evita recortar ideas cuando el chunk supera las 250 palabras, asi no corta la idea, sino se devuelve a el ultimo punto
+        Garantiza completitud lingüística y límite <= 250 palabras.
         """
-
         words = text.split()
         if len(words) <= max_words:
             return text
 
-        # Toma un bloque de palabras un poco menor al límite
         truncated_words = words[:max_words]
         raw_truncated = " ".join(truncated_words)
 
-        # Busca el último punto final '.'
-        last_punct = max(
-            raw_truncated.rfind("."), raw_truncated.rfind("?"), raw_truncated.rfind("!")
-        )
+        match = list(re.finditer(r"[.!?](?:\s+|$)", raw_truncated))
+        if match:
+            last_end_idx = match[-1].end()
+            return raw_truncated[:last_end_idx].strip()
 
-        if last_punct != -1:
-            # Corta donde termina la última oración completa
-            return raw_truncated[: last_punct + 1]
-
-        # Devolvemos recorte crudo
-        return raw_truncated
+        return raw_truncated.strip()
 
     def _format_fragments(
         self, candidates: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        Selecciona los Top 10 fragmentos y garantiza que ninguno supere el límite máximo de palabras permitido.
-        """
+        """Formatea los Top 10 fragmentos asegurando <= 250 palabras por chunk."""
         top_chunks = candidates[: self.top_k_chunks]
         fragments = []
 
         for rank, cand in enumerate(top_chunks):
-            # Usamos el recorte
             clipped_text = self._clip_text_smartly(
-                cand["texto"], self.max_words_per_chunk
+                cand.get("texto", cand.get("text", "")), self.max_words_per_chunk
             )
 
             fragments.append(
@@ -191,18 +195,15 @@ class SearchEngine:
         return fragments
 
     def search(self, query_id: str, query_text: str) -> Dict[str, Any]:
-        """Procesa una consulta completa y devuelve el formato listo para JSONL."""
-        # Limpiar y procesar consulta
+        """Procesa una consulta y devuelve la respuesta en la estructura JSON oficial."""
         processed_query = self.preprocess_query(query_text)
-
-        # Recuperar candidatos crudos de FAISS (Top 50)
         candidates = self._vector_search(processed_query, k=50)
 
-        # Extraer Top 3 Documentos
         documents = self._aggregate_documents(candidates)
-
-        # Extraer Top 10 Fragmentos
         fragments = self._format_fragments(candidates)
 
-        # Formato de salida estandarizado
-        return {"query_id": query_id, "documents": documents, "fragments": fragments}
+        return {
+            "query_id": query_id,
+            "documents": documents,
+            "fragments": fragments,
+        }
