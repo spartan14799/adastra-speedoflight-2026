@@ -54,7 +54,7 @@ pip install uv
 Clona el repositorio:
 
 ```bash
-git clone https://github.com/tu-usuario/codefest-ad-astra.git
+git clone https://github.com/spartan14799/adastra-speedoflight-2026
 cd codefest-ad-astra
 ```
 
