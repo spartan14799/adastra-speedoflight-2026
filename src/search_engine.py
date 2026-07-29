@@ -67,3 +67,80 @@ class SearchEngine:
                 candidates.append(item)
 
         return candidates
+
+    def _aggregate_documents(
+        self, candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Agrupa los scores de los chunks por doc_id usando Max Pooling
+        para seleccionar los Top 3 documentos más relevantes.
+        """
+        doc_scores: Dict[str, float] = {}
+
+        for cand in candidates:
+            doc_id = cand["doc_id"]
+            score = cand["score"]
+            # Max Pooling: Asignar la mayor puntuación de chunk al documento
+            if doc_id not in doc_scores or score > doc_scores[doc_id]:
+                doc_scores[doc_id] = score
+
+        # Ordenar documentos por score
+        sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
+        top_docs = sorted_docs[: self.top_k_docs]
+
+        return [
+            {"rank": rank + 1, "doc_id": doc_id}
+            for rank, (doc_id, _) in enumerate(top_docs)
+        ]
+
+    # TODO: arreglar y mejorar este metodo, revisar como se puede mejorar desde el chunk
+    def _clip_text_smartly(self, text: str, max_words: int = 250) -> str:
+        """
+        Evita recortar ideas cuando el chunk supera las 250 palabras, asi no corta la idea, sino se devuelve a el ultimo punto
+        """
+
+        words = text.split()
+        if len(words) <= max_words:
+            return text
+
+        # Toma un bloque de palabras un poco menor al límite
+        truncated_words = words[:max_words]
+        raw_truncated = " ".join(truncated_words)
+
+        # Busca el último punto final '.'
+        last_punct = max(
+            raw_truncated.rfind("."), raw_truncated.rfind("?"), raw_truncated.rfind("!")
+        )
+
+        if last_punct != -1:
+            # Corta donde termina la última oración completa
+            return raw_truncated[: last_punct + 1]
+
+        # Devolvemos recorte crudo
+        return raw_truncated
+
+    def _format_fragments(
+        self, candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Selecciona los Top 10 fragmentos y garantiza que ninguno supere el límite máximo de palabras permitido.
+        """
+        top_chunks = candidates[: self.top_k_chunks]
+        fragments = []
+
+        for rank, cand in enumerate(top_chunks):
+            # Usamos el recorte
+            clipped_text = self._clip_text_smartly(
+                cand["texto"], self.max_words_per_chunk
+            )
+
+            fragments.append(
+                {
+                    "rank": rank + 1,
+                    "chunk_id": cand["chunk_id"],
+                    "doc_id": cand["doc_id"],
+                    "text": clipped_text,
+                }
+            )
+
+        return fragments
