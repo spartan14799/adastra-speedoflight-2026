@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from symspellpy import SymSpell
 
@@ -22,7 +23,11 @@ def build_dictionary_from_metadata(metadata_path: str, output_dict_path: str):
             item = json.loads(line.strip())
             text = item.get("texto", item.get("text", ""))
             if text:
-                sym_spell.create_dictionary_entry(text, count=1)
+                # Extraer palabras individuales (incluye caracteres en español como ñ, á, é, etc.)
+                words = re.findall(r"[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]+", text.lower())
+                for word in words:
+                    if len(word) > 1:
+                        sym_spell.create_dictionary_entry(word, count=1)
                 count_chunks += 1
 
     # Asegurar que el directorio de salida exista
@@ -31,12 +36,16 @@ def build_dictionary_from_metadata(metadata_path: str, output_dict_path: str):
     print(
         f"Guardando diccionario precalculado ({count_chunks} fragmentos procesados)..."
     )
-    sym_spell.save_dictionary(output_dict_path)
+
+    # Escribir las palabras y sus frecuencias en formato 'palabra frecuencia'
+    with open(output_dict_path, "w", encoding="utf-8") as f:
+        for word, count in sym_spell.words.items():
+            f.write(f"{word} {count}\n")
+
     print(f"Diccionario guardado exitosamente en: {output_dict_path}")
 
 
 if __name__ == "__main__":
-    # Rutas por defecto cuando se ejecuta directamente el archivo
     DEFAULT_METADATA = "entrega/base_vectorial/encoder_modelo/metadata.jsonl"
     DEFAULT_OUTPUT = "entrega/base_vectorial/encoder_modelo/dictionary.txt"
 

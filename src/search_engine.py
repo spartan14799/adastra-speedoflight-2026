@@ -163,13 +163,17 @@ class SearchEngine:
 
         truncated_words = words[:max_words]
         raw_truncated = " ".join(truncated_words)
-
+        # Cortar oraciones hasta puntos
         match = list(re.finditer(r"[.!?](?:\s+|$)", raw_truncated))
         if match:
             last_end_idx = match[-1].end()
             return raw_truncated[:last_end_idx].strip()
 
-        return raw_truncated.strip()
+        # Fallback
+        clipped = raw_truncated.strip()
+        if not clipped.endswith((".", "!", "?")):
+            clipped += "."
+        return clipped
 
     def _format_fragments(
         self, candidates: List[Dict[str, Any]]
