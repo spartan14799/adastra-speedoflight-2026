@@ -5,6 +5,7 @@ Sistema de recuperación semántica y agregación de documentos heterogéneos de
 ---
 
 ## Descripción
+### TODO: Crear el flujo de ejecución
 
 Este proyecto implementa un sistema de **búsqueda semántica** capaz de indexar documentos heterogéneos y recuperar la información más relevante mediante embeddings y una base vectorial utilizando **FAISS**.
 
@@ -67,60 +68,20 @@ uv sync
 
 ---
 
-## 🚀 3. Ejecución del Proyecto
+## Ejecución del Proyecto
+### TODO: Crear el flujo de ejecución
 
-### Fase 1: Construcción de la Base Vectorial
-
-Esta etapa:
-
-- Lee los documentos ubicados en `data/raw/`.
-- Realiza la fragmentación semántica (*chunking*).
-- Genera los embeddings.
-- Construye el índice FAISS y los metadatos correspondientes.
-
-Ejecuta:
-
-```bash
-uv run main.py
-```
-
-**Salida generada**
-
-```
-entrega/
-└── base_vectorial/
-    └── encoder_modelo/
-```
-
----
-
-### Fase 2: Generación de Resultados
-
-Una vez construida la base vectorial, ejecuta:
-
-```bash
-uv run entrega/generador.py
-```
-
-Este proceso:
-
-- Carga el motor de búsqueda (`SearchEngine`).
-- Procesa las **50 consultas** de `data/queries.json`.
-- Genera el archivo de resultados solicitado para la evaluación del reto.
-
----
-
-## 📁 Estructura del Proyecto
+## Estructura del Proyecto
 
 ```text
 .
 ├── data/
 │   ├── raw/
 │   └── queries.json
-├── entrega/
-│   ├── base_vectorial/
-│   └── generador.py
-├── main.py
+├── src/
+│   └── search_engine.py
+├── entrega
+│    └── generador.py
 ├── uv.lock
 ├── pyproject.toml
 └── README.md
