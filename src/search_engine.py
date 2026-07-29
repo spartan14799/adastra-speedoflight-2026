@@ -144,3 +144,20 @@ class SearchEngine:
             )
 
         return fragments
+
+    def search(self, query_id: str, query_text: str) -> Dict[str, Any]:
+        """Procesa una consulta completa y devuelve el formato listo para JSONL."""
+        # Limpiar y procesar consulta
+        processed_query = self.preprocess_query(query_text)
+
+        # Recuperar candidatos crudos de FAISS (Top 50)
+        candidates = self._vector_search(processed_query, k=50)
+
+        # Extraer Top 3 Documentos
+        documents = self._aggregate_documents(candidates)
+
+        # Extraer Top 10 Fragmentos
+        fragments = self._format_fragments(candidates)
+
+        # Formato de salida estandarizado
+        return {"query_id": query_id, "documents": documents, "fragments": fragments}
