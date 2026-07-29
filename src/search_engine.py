@@ -1,9 +1,12 @@
 import os
 import json
+import re
 import faiss
+import unicodedata
 import numpy as np
 from typing import List, Dict, Any, Optional
 from sentence_transformers import SentenceTransformer
+from symspellpy import SymSpell
 
 
 class SearchEngine:
@@ -41,12 +44,54 @@ class SearchEngine:
             for line in f:
                 self.metadata.append(json.loads(line))
 
+        self.sym_spell = SymSpell(max_dictionary_edit_distance=2, prefix_length=7)
+        self._build_corpus_dictionary()
+
+    def _build_corpus_dictionary(self):
+        """
+        Crea el diccionario de SymSpell usando el texto real de los documentos.
+        """
+        for item in self.metadata:
+            text = item.get("texto", "")
+            if text:
+                self.sym_spell.create_dictionary_entry(text, count=1)
+
     def preprocess_query(self, query_text: str) -> str:
-        # TODO: Crear la funcion que preprocese la query
         """
-        Limpia y optimiza la consulta antes de vectorizarla.
+        Limpia, normaliza y corrige ortográficamente la consulta sin usar LLMs.
+        1. Normalización Unicode (NFC) y limpieza de caracteres de control.
+        2. Preservación de puntuación básica en español.
+        3. Colapso de espacios múltiples.
+        4. Corrección ortográfica basada en el vocabulario del corpus con SymSpell.
         """
-        cleaned = query_text.strip()
+        if not query_text or not isinstance(query_text, str):
+            return ""
+
+        # Normalización Unicode (NFC)
+        text = unicodedata.normalize("NFC", query_text)
+
+        # Limpieza de saltos de línea, pestañas y caracteres de control
+        text = re.sub(r"[\r\n\t\x00-\x1f\x7f-\x9f]", " ", text)
+
+        # Retener caracteres alfanuméricos y puntuación estándar
+        text = re.sub(r"[^\w\s\dÁÉÍÓÚáéíóúÑñÜü.,?!¿¡\-]", " ", text)
+
+        # Colapsar espacios múltiples
+        cleaned = re.sub(r"\s+", " ", text).strip()
+
+        # Corrección ortográfica con SymSpell
+        if cleaned and hasattr(self, "sym_spell"):
+            try:
+                # lookup_compound procesa frases completas con múltiples typos
+                suggestions = self.sym_spell.lookup_compound(
+                    cleaned, max_edit_distance=2, ignore_non_words=True
+                )
+                if suggestions:
+                    cleaned = suggestions[0].term
+            except Exception:
+                # Fallback de seguridad
+                pass
+
         return cleaned
 
     def _vector_search(self, query_text: str, k: int = 50) -> List[Dict[str, Any]]:
