@@ -5,9 +5,12 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from src.search_engine import SearchEngine
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
-def run_integration_test():
+def test_search_engine_integration():
     print("🧪 Iniciando test de integración para SearchEngine...")
 
     # 1. Crear datos sintéticos temporales
@@ -87,4 +90,4 @@ def run_integration_test():
 
 
 if __name__ == "__main__":
-    run_integration_test()
+    test_search_engine_integration()
