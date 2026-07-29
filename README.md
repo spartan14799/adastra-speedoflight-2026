@@ -1,52 +1,143 @@
 # Proyecto Ad Astra - Buscador Semántico
 
-Sistema de recuperación semántica y agregación de documentos heterogéneos para el reto CODEFEST AD ASTRA.
+Sistema de recuperación semántica y agregación de documentos heterogéneos desarrollado para el reto **CODEFEST AD ASTRA**.
+
+---
+
+## Descripción
+
+Este proyecto implementa un sistema de **búsqueda semántica** capaz de indexar documentos heterogéneos y recuperar la información más relevante mediante embeddings y una base vectorial utilizando **FAISS**.
+
+El flujo de trabajo se divide en dos etapas:
+
+1. **Construcción de la base vectorial** a partir de los documentos fuente.
+2. **Procesamiento de consultas** para generar los resultados requeridos por la competencia.
 
 ---
 
 ## Requisitos Previos
 
-* Python 3.10 o superior.
-* `pip` actualizado.
+Antes de comenzar, asegúrate de tener instalado:
+
+- **Python 3.10** o superior.
+- **uv** (gestor de paquetes recomendado para un entorno rápido y reproducible).
 
 ---
 
-## Configuración del Entorno Virtual
+## Instalación de `uv`
 
-Sigue estos pasos para clonar el repositorio y configurar el entorno de trabajo:
+Si aún no tienes `uv` instalado, utiliza uno de los siguientes métodos.
 
-### 1. Clonar el repositorio
+### Linux / macOS
 
 ```bash
-git clone [https://github.com/tu-usuario/codefest-ad-astra.git](https://github.com/tu-usuario/codefest-ad-astra.git)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### Windows (PowerShell)
+
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### Instalación mediante pip
+
+```bash
+pip install uv
+```
+
+---
+
+## Configuración del Proyecto
+
+Clona el repositorio:
+
+```bash
+git clone https://github.com/tu-usuario/codefest-ad-astra.git
 cd codefest-ad-astra
+```
 
+Instala todas las dependencias utilizando **uv**:
 
-2. Crear el entorno virtual (venv)
-Bash
+```bash
+uv sync
+```
 
-# En Linux/macOS o Windows:
-python -m venv venv
+> **Nota:** `uv` crea y administra automáticamente el entorno virtual, por lo que **no es necesario activarlo manualmente**.
 
-3. Activar el entorno virtual
+---
 
-    En Linux / macOS:
-    Bash
+## 🚀 3. Ejecución del Proyecto
 
-    source venv/bin/activate
+### Fase 1: Construcción de la Base Vectorial
 
-    En Windows (PowerShell):
-    PowerShell
+Esta etapa:
 
-    .\venv\Scripts\Activate.ps1
+- Lee los documentos ubicados en `data/raw/`.
+- Realiza la fragmentación semántica (*chunking*).
+- Genera los embeddings.
+- Construye el índice FAISS y los metadatos correspondientes.
 
-    En Windows (CMD):
-    DOS
+Ejecuta:
 
-    venv\Scripts\activate.bat
+```bash
+uv run main.py
+```
 
-4. Instalar dependencias
-Bash
+**Salida generada**
 
-pip install --upgrade pip
-pip install -r requirements.txt
+```
+entrega/
+└── base_vectorial/
+    └── encoder_modelo/
+```
+
+---
+
+### Fase 2: Generación de Resultados
+
+Una vez construida la base vectorial, ejecuta:
+
+```bash
+uv run entrega/generador.py
+```
+
+Este proceso:
+
+- Carga el motor de búsqueda (`SearchEngine`).
+- Procesa las **50 consultas** de `data/queries.json`.
+- Genera el archivo de resultados solicitado para la evaluación del reto.
+
+---
+
+## 📁 Estructura del Proyecto
+
+```text
+.
+├── data/
+│   ├── raw/
+│   └── queries.json
+├── entrega/
+│   ├── base_vectorial/
+│   └── generador.py
+├── main.py
+├── uv.lock
+├── pyproject.toml
+└── README.md
+```
+
+---
+
+## Tecnologías Utilizadas
+
+- Python 3.10+
+- uv
+- FAISS
+- Embeddings semánticos
+- Procesamiento de lenguaje natural (NLP)
+
+---
+
+## Autores
+
+Proyecto desarrollado para el **CODEFEST AD ASTRA**.
