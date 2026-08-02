@@ -278,3 +278,5 @@ huggingface/
 Thumbs.db
 .vscode/
 .idea/
+
+data/
