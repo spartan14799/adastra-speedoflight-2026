@@ -8,241 +8,212 @@ from langdetect import detect, LangDetectException
 
 class BaseExtractor(abc.ABC):
     """
-    Clase abstracta base.
+    Abstract base class for text extraction and sanitization.
+    Strictly adjusted to return the Data Contract required for RAG systems.
     """
-    def __init__(self, limite_palabras: int = 250):
-        self.limite_palabras = limite_palabras
 
     @abc.abstractmethod
-    def extraer_documentos(self, ruta_archivo: str) -> List[Dict[str, Any]]:
+    def extract_documents(self, file_path: str) -> List[Dict[str, Any]]:
         pass
 
-    def limpiar_texto(self, texto: str) -> str:
-        if not texto:
+    def clean_text(self, text: str) -> str:
+        if not text:
             return ""
-        texto_limpio = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', texto)
-        patrones_boilerplate = r'(?i)^\s*(página \d+ de \d+|copyright \d+|derechos reservados|all rights reserved)\b.*$'
-        texto_limpio = re.sub(patrones_boilerplate, '', texto_limpio, flags=re.MULTILINE)
-        texto_limpio = re.sub(r'\n{3,}', '\n\n', texto_limpio)
-        texto_limpio = re.sub(r'[ \t]+', ' ', texto_limpio)
-        return texto_limpio.strip()
+        # Removal of control characters
+        cleaned_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+        # Removal of boilerplate (repetitive headers, copyrights, etc.)
+        boilerplate_patterns = r'(?i)^\s*(page \d+ of \d+|página \d+ de \d+|copyright \d+|derechos reservados|all rights reserved)\b.*$'
+        cleaned_text = re.sub(boilerplate_patterns, '', cleaned_text, flags=re.MULTILINE)
+        # Space normalization
+        cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+        cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
+        return cleaned_text.strip()
 
-    def fragmentar_texto(self, texto: str) -> List[str]:
-        if not texto:
-            return []
-        oraciones = re.split(r'(?<=[.?!])\s+', texto)
-        chunks, chunk_actual = [], []
-        palabras_actuales = 0
+    def process(self, file_path: str, phenomenon: int = 1) -> List[Dict[str, Any]]:
+        """
+        Main orchestrator.
+        Generates the exact data contract demanded by business constraints.
+        """
+        extracted_documents = self.extract_documents(file_path)
+        final_results = []
+        source_name = os.path.basename(file_path)
 
-        for oracion in oraciones:
-            oracion = oracion.strip()
-            if not oracion: continue
-                
-            palabras_oracion = len(oracion.split())
+        for idx, doc in enumerate(extracted_documents, start=1):
+            raw_text = doc.get("raw_text", "")
+            cleaned_text = self.clean_text(raw_text)
             
-            if palabras_oracion > self.limite_palabras:
-                if chunk_actual:
-                    chunks.append(" ".join(chunk_actual))
-                    chunk_actual, palabras_actuales = [], 0
-                palabras_truncadas = oracion.split()[:self.limite_palabras]
-                chunks.append(" ".join(palabras_truncadas) + ".")
+            if not cleaned_text:
                 continue
-
-            if palabras_actuales + palabras_oracion > self.limite_palabras:
-                chunks.append(" ".join(chunk_actual))
-                chunk_actual = [oracion]
-                palabras_actuales = palabras_oracion
-            else:
-                chunk_actual.append(oracion)
-                palabras_actuales += palabras_oracion
-
-        if chunk_actual:
-            chunks.append(" ".join(chunk_actual))
-        return chunks
-
-    def procesar(self, ruta_archivo: str, fenomeno: int = 1) -> List[Dict[str, Any]]:
-        """
-        Orquestador ajustado para inyectar los 8 campos obligatorios de la Tabla 1.
-        Nota: Se agrega el parámetro 'fenomeno' (default 1).
-        """
-        documentos_extraidos = self.extraer_documentos(ruta_archivo)
-        resultados_finales = []
-        nombre_fuente = os.path.basename(ruta_archivo)
-
-        for doc in documentos_extraidos:
-            texto_crudo = doc.get("texto_bruto", "")
-            texto_limpio = self.limpiar_texto(texto_crudo)
             
+            # Hygienic language detection
             try:
-                idioma = detect(texto_limpio) if texto_limpio else "es"
+                language = detect(cleaned_text)
             except LangDetectException:
-                idioma = "es"
+                language = "es"
                 
-            fragmentos = self.fragmentar_texto(texto_limpio)
-            metadata_base = doc.get("metadata", {})
-            tipo_fuente = metadata_base.get("formato", "json")
+            base_metadata = doc.get("metadata", {})
             doc_id = doc.get("doc_id", str(uuid.uuid4()))
 
-            for i, fragmento in enumerate(fragmentos):
-                num_tokens = len(fragmento.split()) # Proxy aceptable para tokens sin tokenizer
-                chunk_id = f"{doc_id}_chk_{str(i).zfill(3)}"
-                
-                # Inyección ESTRICTA de la Tabla 1 (Sección 3.4)
-                metadata_chunk = metadata_base.copy()
-                metadata_chunk["doc_id"] = doc_id
-                metadata_chunk["chunk_id"] = chunk_id
-                metadata_chunk["fuente"] = nombre_fuente
-                metadata_chunk["formato"] = tipo_fuente
-                metadata_chunk["fenomeno"] = fenomeno
-                metadata_chunk["posicion"] = i
-                metadata_chunk["num_tokens"] = num_tokens
-                metadata_chunk["texto"] = fragmento
-                
-                # Contrato de Salida
-                esquema_salida = {
-                    "id_chunk": chunk_id,
-                    "fuente": nombre_fuente,
-                    "tipo_fuente": tipo_fuente,
-                    "idioma": idioma,
-                    "texto": fragmento,
-                    "metadata": metadata_chunk
-                }
-                
-                resultados_finales.append(esquema_salida)
+            # Package all context exclusively within metadata
+            doc_metadata = base_metadata.copy()
+            doc_metadata["doc_id"] = doc_id
+            doc_metadata["phenomenon"] = phenomenon
+            doc_metadata["total_words"] = len(cleaned_text.split())
+            
+            # Strict adaptation to the output schema (Inviolable Data Contract)
+            output_schema = {
+                "text": cleaned_text,
+                "metadata": doc_metadata
+            }
+            
+            final_results.append(output_schema)
 
-        return resultados_finales
+        return final_results
 
 
 class JSONExtractor(BaseExtractor):
     """
-    Clase concreta para ingesta de archivos JSON.
-    Alineada con la Sección 2.1 y serialización estricta.
+    Concrete class for JSON file ingestion.
+    Includes logic for omitting heavy metadata (images) and 
+    now explicitly injects links into the raw text.
     """
-    def _procesar_articulo(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_article(self, item: Dict[str, Any]) -> Dict[str, Any]:
         doc_id = str(item.get("doc_id") or item.get("id") or uuid.uuid4())
-        bloques_texto = []
         
-        if item.get("title"):
-            bloques_texto.append(f"{str(item['title']).strip()}.")
+        # Priority extraction of the title for the top level
+        title = str(item.get("title") or item.get("titulo") or "Untitled").strip()
+        
+        text_blocks = []
+        if title != "Untitled":
+            text_blocks.append(f"{title}.")
             
         if "sections" in item and isinstance(item["sections"], list):
             for sec in item["sections"]:
                 if isinstance(sec, dict):
                     if "heading" in sec and sec["heading"]:
-                        bloques_texto.append(f"{str(sec['heading']).strip()}.")
+                        text_blocks.append(f"{str(sec['heading']).strip()}.")
                     if "paragraphs" in sec and isinstance(sec["paragraphs"], list):
-                        parrafos = [str(p).strip() for p in sec["paragraphs"] if str(p).strip()]
-                        bloques_texto.append(" ".join(parrafos))
+                        paragraphs = [str(p).strip() for p in sec["paragraphs"] if str(p).strip()]
+                        text_blocks.append(" ".join(paragraphs))
                         
         if "lists" in item and isinstance(item["lists"], list):
-            elementos_lista = [f"{str(li).strip()}." for li in item["lists"] if str(li).strip()]
-            bloques_texto.append(" ".join(elementos_lista))
+            list_items = [f"{str(li).strip()}." for li in item["lists"] if str(li).strip()]
+            text_blocks.append(" ".join(list_items))
 
         if item.get("body_text"):
-            bloques_texto.append(str(item["body_text"]).strip())
+            text_blocks.append(str(item["body_text"]).strip())
             
         if item.get("body_paragraphs"):
-            parrafos = item["body_paragraphs"]
-            if isinstance(parrafos, list):
-                bloques_texto.append(" ".join(str(p).strip() for p in parrafos if str(p).strip()))
+            paragraphs = item["body_paragraphs"]
+            if isinstance(paragraphs, list):
+                text_blocks.append(" ".join(str(p).strip() for p in paragraphs if str(p).strip()))
             else:
-                bloques_texto.append(str(parrafos).strip())
+                text_blocks.append(str(paragraphs).strip())
 
-        texto_bruto = " ".join(bloques_texto)
-
-        # Serialización limpia de metadata (evitando el error de str(list))
-        llaves_texto = {"title", "sections", "lists", "body_text", "body_paragraphs", "id", "doc_id"}
+        # =========================================================================
+        # REFACTORING: Dynamic metadata configuration and link injection
+        # =========================================================================
+        text_keys = {"title", "titulo", "sections", "lists", "body_text", "body_paragraphs", "id", "doc_id"}
+        image_patterns = {"image", "img", "thumbnail", "picture", "figure", "photo", "url", "cover", "portada"}
         metadata = {}
         
         for k, v in item.items():
-            if k not in llaves_texto:
+            k_lower = str(k).lower()
+            
+            # Filter to exclude keys indicating visual content (images)
+            is_image = any(pattern in k_lower for pattern in image_patterns) if "link" not in k_lower else False
+            
+            # Scenario 1: List of link dictionaries -> Goes straight to text_blocks
+            if isinstance(v, list) and len(v) > 0 and all(isinstance(i, dict) and "url" in i for i in v):
+                for element in v:
+                    link_text = str(element.get("text", "Link")).strip()
+                    link_url = str(element.get("url", "")).strip()
+                    if link_url:
+                        text_blocks.append(f"{link_text}: {link_url}.")
+
+            # Scenario 2: Single link dictionary -> Goes straight to text_blocks
+            elif isinstance(v, dict) and "url" in v:
+                link_text = str(v.get("text", "Link")).strip()
+                link_url = str(v.get("url", "")).strip()
+                if link_url:
+                    text_blocks.append(f"{link_text}: {link_url}.")
+
+            # Original behavior for the rest of legitimate metadata
+            elif k not in text_keys and not is_image:
                 if isinstance(v, (str, int, float, bool)) or v is None:
                     metadata[k] = v
                 else:
-                    # Convierte arrays anidados en strings JSON válidos
+                    # Strict serialization for nested arrays
                     metadata[k] = json.dumps(v, ensure_ascii=False)
-                
-        metadata["formato"] = "json"
+                    
+        # Assemble raw text AT THE END to include the extracted links
+        raw_text = " ".join(text_blocks)
+        metadata["format"] = "json"
         
         return {
             "doc_id": doc_id,
-            "texto_bruto": texto_bruto,
+            "title": title,
+            "raw_text": raw_text,
             "metadata": metadata
         }
     
-    def _desempaquetar_objetos(self, data: Any) -> List[Dict[str, Any]]:
-        documentos = []
+    def _unpack_objects(self, data: Any) -> List[Dict[str, Any]]:
+        documents = []
         if isinstance(data, dict):
-            documentos.append(self._procesar_articulo(data))
+            documents.append(self._process_article(data))
         elif isinstance(data, list):
-            for elemento in data:
-                documentos.extend(self._desempaquetar_objetos(elemento))
+            for element in data:
+                documents.extend(self._unpack_objects(element))
         else:
-            documentos.append({
+            documents.append({
                 "doc_id": str(uuid.uuid4()),
-                "texto_bruto": str(data),
-                "metadata": {"formato": "json"}
+                "title": "Untitled",
+                "raw_text": str(data),
+                "metadata": {"format": "json"}
             })
-        return documentos
+        return documents
 
-    def extraer_documentos(self, ruta_archivo: str) -> List[Dict[str, Any]]:
-        documentos_crudos = []
-        if not os.path.exists(ruta_archivo):
-            raise FileNotFoundError(f"El archivo {ruta_archivo} no existe.")
-
+    def extract_documents(self, file_path: str) -> List[Dict[str, Any]]:
+        raw_documents = []
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"The file {file_path} does not exist.")
         try:
-            with open(ruta_archivo, 'r', encoding='utf-8') as f:
-                primera_linea = f.readline().strip()
+            with open(file_path, 'r', encoding='utf-8') as f:
+                first_line = f.readline().strip()
                 f.seek(0)
                 try:
-                    json.loads(primera_linea)
-                    for linea in f:
-                        if linea.strip():
-                            obj = json.loads(linea)
-                            documentos_crudos.extend(self._desempaquetar_objetos(obj))
+                    json.loads(first_line)
+                    for line in f:
+                        if line.strip():
+                            obj = json.loads(line)
+                            raw_documents.extend(self._unpack_objects(obj))
                 except json.JSONDecodeError:
                     f.seek(0)
-                    data_completa = json.load(f)
-                    documentos_crudos.extend(self._desempaquetar_objetos(data_completa))
+                    complete_data = json.load(f)
+                    raw_documents.extend(self._unpack_objects(complete_data))
         except Exception as e:
-            raise RuntimeError(f"Falla de procesamiento en {ruta_archivo}: {str(e)}")
+            raise RuntimeError(f"Processing failure in {file_path}: {str(e)}")
+        return raw_documents
 
-        return documentos_crudos
 
 if __name__ == "__main__":
-    print("==========================================================")
-    print("   CODEFEST AD ASTRA 2026 - INGESTA DE FUENTES JSON      ")
-    print("==========================================================")
-    
     extractor = JSONExtractor()
-
     while True:
-        ruta_input = input("\nIngresa la ruta de tu archivo JSON/JSONL local (o 'q' para salir):\n> ").strip()
-        #C:\Users\Flia_Padilla_Camargo\Documents\adastra-speedoflight-2026\data\raw
-
-        if ruta_input.lower() == 'q':
-            print("Saliendo del pipeline...")
+        input_path = input("\nEnter the path of your local JSON/JSONL file (or 'q' to quit):\n> ").strip()
+        if input_path.lower() == 'q':
+            print("Exiting pipeline...")
             break
-
-        # Limpiar comillas si el usuario arrastró el archivo a la consola
-        ruta_archivo = ruta_input.strip("\"'")
-
-        if not os.path.exists(ruta_archivo):
-            print(f"[!] Error: No se encontró el archivo en '{ruta_archivo}'. Intenta nuevamente.")
+        file_path = input_path.strip("\"'")
+        if not os.path.exists(file_path):
+            print(f"[!] Error: File not found at '{file_path}'. Please try again.")
             continue
-
         try:
-            print(f"\n[+] Procesando e higienizando datos de: {ruta_archivo}...")
-            chunks_obtenidos = extractor.procesar(ruta_archivo)
-
-            print(f"[+] Proceso completado exitosamente.")
-            print(f"[+] Total de chunks generados (<= 250 palabras cada uno): {len(chunks_obtenidos)}")
-
-            if chunks_obtenidos:
-                print("\n=== MUESTRA DEL PRIMER CHUNK GENERADO (CONTRATO DE DATOS) ===")
-                print(json.dumps(chunks_obtenidos[0], indent=2, ensure_ascii=False))
-
+            print(f"\n[+] Processing and sanitizing data from: {file_path}...")
+            obtained_docs = extractor.process(file_path)
+            print(f"[+] Total documents extracted: {len(obtained_docs)}")
+            if obtained_docs:
+                print("\n === DATA CONTRACT SAMPLE ===")
+                print(json.dumps(obtained_docs[0], indent=2, ensure_ascii=False))
             print("\n" + "=" * 58)
-
         except Exception as e:
-            print(f"\n[!] Error durante el procesamiento: {str(e)}")
+            print(f"\n[!] Error during processing: {str(e)}")
