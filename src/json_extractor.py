@@ -59,10 +59,13 @@ class BaseExtractor(abc.ABC):
             doc_metadata["doc_id"] = doc_id
             doc_metadata["phenomenon"] = phenomenon
             doc_metadata["total_words"] = len(cleaned_text.split())
+            doc_metadata["fuente"] = source_name
+            doc_metadata["tipo_fuente"] = "json"
+            doc_metadata["idioma"] = language
             
             # Strict adaptation to the output schema (Inviolable Data Contract)
             output_schema = {
-                "text": cleaned_text,
+                "texto": cleaned_text,
                 "metadata": doc_metadata
             }
             
@@ -197,23 +200,19 @@ class JSONExtractor(BaseExtractor):
 
 
 if __name__ == "__main__":
-    extractor = JSONExtractor()
-    while True:
-        input_path = input("\nEnter the path of your local JSON/JSONL file (or 'q' to quit):\n> ").strip()
-        if input_path.lower() == 'q':
-            print("Exiting pipeline...")
-            break
-        file_path = input_path.strip("\"'")
-        if not os.path.exists(file_path):
-            print(f"[!] Error: File not found at '{file_path}'. Please try again.")
-            continue
+    # Solicitud estricta en inglés para la ruta del archivo
+    input_path = input("Please enter the file path on your device: ").strip()
+    file_path = input_path.strip("\"'")
+    
+    if not file_path or not os.path.exists(file_path):
+        # Retorna lista vacía si no existe el archivo
+        print(json.dumps([]))
+    else:
         try:
-            print(f"\n[+] Processing and sanitizing data from: {file_path}...")
+            extractor = JSONExtractor()
             obtained_docs = extractor.process(file_path)
-            print(f"[+] Total documents extracted: {len(obtained_docs)}")
-            if obtained_docs:
-                print("\n === DATA CONTRACT SAMPLE ===")
-                print(json.dumps(obtained_docs[0], indent=2, ensure_ascii=False))
-            print("\n" + "=" * 58)
-        except Exception as e:
-            print(f"\n[!] Error during processing: {str(e)}")
+            # Imprime estrictamente el JSON limpio sin más líneas en consola
+            print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
+        except Exception:
+            # Retorna lista vacía en caso de que la ejecución falle
+            print(json.dumps([]))
