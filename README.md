@@ -103,6 +103,32 @@ uv sync
 
 ---
 
+## Arquitectura y Funcionamiento
+
+El motor de búsqueda (`SearchEngine`) implementa una arquitectura **Multi-Encoder** sin el uso de modelos generativos, cumpliendo de forma estricta con las restricciones del reto.
+
+```text
+Entrada (Consulta)
+       │
+       ▼
+Preprocesamiento & Corrección Ortográfica (SymSpell)
+       │
+       ├─────────────────────────┬─────────────────────────┐
+       ▼                         ▼                         ▼
+Encoder 1 (BGE-M3)         Encoder 2 (E5)            Encoder N...
+       │                         │                         │
+  Índice FAISS 1            Índice FAISS 2            Índice FAISS N
+       │                         │                         │
+       └─────────────────────────┼─────────────────────────┘
+                                 ▼
+                     Fusión RRF (Reciprocal Rank Fusion)
+                                 │
+                   ┌─────────────┴─────────────┐
+                   ▼                           ▼
+      Top 10 Fragmentos              Top 3 Documentos
+   (<= 250 palabras / completitud)     (Max Pooling de Scores)
+```
+
 ## Tecnologías Utilizadas
 
 - Python 3.10+
