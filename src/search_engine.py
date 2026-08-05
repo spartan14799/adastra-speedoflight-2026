@@ -11,15 +11,16 @@ from symspellpy import SymSpell
 
 
 class SearchEngine:
-    """Motor de búsqueda semántica basado en FAISS y Encoders densos con soporte Multi-Encoder y RRF."""
+    """Motor de búsqueda semántica con soporte Multi-Encoder, autodescubrimiento recursivo y RRF."""
 
     def __init__(
         self,
-        metadata_path: str,
+        metadata_path: Optional[str] = None,
+        base_vectorial_dir: Optional[str] = None,
+        encoders_config: Optional[List[Dict[str, Any]]] = None,
         index_path: Optional[str] = None,
         dict_path: Optional[str] = None,
         model_name: str = "BAAI/bge-m3",
-        encoders_config: Optional[List[Dict[str, Any]]] = None,
         top_k_docs: int = 3,
         top_k_chunks: int = 10,
         max_words_per_chunk: int = 250,
@@ -29,7 +30,29 @@ class SearchEngine:
         self.top_k_chunks = top_k_chunks
         self.max_words_per_chunk = max_words_per_chunk
 
-        # 1. Determinar la ruta del diccionario para SymSpell
+        # Autodescubrimiento recursivo de Encoders si se proporciona base_vectorial_dir
+        if encoders_config is None and base_vectorial_dir is not None:
+            encoders_config = self._discover_encoders_recursively(base_vectorial_dir)
+
+            # Auto-detectar metadata.jsonl en base_vectorial_dir si no fue provisto
+            if metadata_path is None:
+                metadata_path = self._discover_metadata(base_vectorial_dir)
+
+        # Fallback para compatibilidad con 1 solo encoder si no hay autodescubrimiento ni config lista[cite: 5]
+        if encoders_config is None:
+            if index_path is None or metadata_path is None:
+                raise ValueError(
+                    "Debe proporcionar 'base_vectorial_dir', 'encoders_config' o ('index_path' y 'metadata_path')."
+                )
+            encoders_config = [
+                {
+                    "model_name": model_name,
+                    "index_path": index_path,
+                    "prefix": "",
+                }
+            ]
+
+        #   Configurar SymSpell
         if dict_path is None:
             base_dir = os.path.dirname(metadata_path)
             self.dict_path = os.path.join(base_dir, "dictionary.txt")
@@ -38,8 +61,7 @@ class SearchEngine:
 
         self._sym_spell: Optional[SymSpell] = None
 
-        # 2. Cargar almacén único de metadatos (JSONL)
-        # Se asume que todos los índices FAISS coinciden exactamente fila por fila con este archivo
+        # Cargar almacén único de metadatos
         if not os.path.exists(metadata_path):
             raise FileNotFoundError(
                 f"Archivo metadata no encontrado en: {metadata_path}"
@@ -51,18 +73,7 @@ class SearchEngine:
                 if line.strip():
                     self.metadata.append(json.loads(line.strip()))
 
-        # 3. Configurar Encoders e Índices FAISS (Un solo encoder vs Multi-Encoder)
-        if encoders_config is None:
-            if index_path is None:
-                raise ValueError("Debe proporcionar 'encoders_config' o 'index_path'.")
-            encoders_config = [
-                {
-                    "model_name": model_name,
-                    "index_path": index_path,
-                    "prefix": "",
-                }
-            ]
-
+        # Inicializar Encoders e Índices FAISS detectados
         self.encoders: List[Dict[str, Any]] = []
         for cfg in encoders_config:
             m_name = cfg["model_name"]
@@ -72,6 +83,7 @@ class SearchEngine:
             if not os.path.exists(i_path):
                 raise FileNotFoundError(f"Índice FAISS no encontrado en: {i_path}")
 
+            print(f"  -> Cargando encoder: '{m_name}' desde '{i_path}'...")
             encoder_model = SentenceTransformer(m_name, device=device)
             faiss_index = faiss.read_index(i_path)
 
@@ -82,6 +94,41 @@ class SearchEngine:
                     "prefix": prefix,
                 }
             )
+
+    @staticmethod
+    def _discover_encoders_recursively(base_dir: str) -> List[Dict[str, Any]]:
+        """Recorre recursivamente base_dir buscando parejas (config.json + index.faiss)."""
+        discovered = []
+        if not os.path.exists(base_dir):
+            raise FileNotFoundError(
+                f"El directorio base vectorial no existe: {base_dir}"
+            )
+
+        for root, _, files in os.walk(base_dir):
+            if "config.json" in files and "index.faiss" in files:
+                config_path = os.path.join(root, "config.json")
+                index_path = os.path.join(root, "index.faiss")
+
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+
+                cfg["index_path"] = index_path
+                discovered.append(cfg)
+
+        if not discovered:
+            raise FileNotFoundError(
+                f"No se encontraron subcarpetas válidas con 'config.json' e 'index.faiss' en {base_dir}"
+            )
+
+        return discovered
+
+    @staticmethod
+    def _discover_metadata(base_dir: str) -> str:
+        """Busca el primer archivo metadata.jsonl disponible dentro de base_dir."""
+        for root, _, files in os.walk(base_dir):
+            if "metadata.jsonl" in files:
+                return os.path.join(root, "metadata.jsonl")
+        raise FileNotFoundError(f"No se encontró 'metadata.jsonl' dentro de {base_dir}")
 
     @property
     def sym_spell(self) -> SymSpell:
@@ -102,7 +149,7 @@ class SearchEngine:
         return self._sym_spell
 
     def preprocess_query(self, query_text: str) -> str:
-        """Limpia, normaliza y corrige ortográfica la consulta."""
+        """Limpia, normaliza y corrige ortográficamente la consulta."""
         if not query_text or not isinstance(query_text, str):
             return ""
 
@@ -143,7 +190,7 @@ class SearchEngine:
             if idx != -1 and idx < len(self.metadata):
                 item = self.metadata[idx].copy()
                 item["score"] = float(score)
-                item["_faiss_idx"] = int(idx)  # ID interno único para fusionar
+                item["_faiss_idx"] = int(idx)
                 candidates.append(item)
 
         return candidates
@@ -151,16 +198,13 @@ class SearchEngine:
     def _rrf_fusion(
         self, rank_lists: List[List[Dict[str, Any]]], k_rrf: int = 60
     ) -> List[Dict[str, Any]]:
-        """
-        Combina rankings de múltiples encoders usando Reciprocal Rank Fusion (RRF).
-        Fórmula: RRF(d) = sum_i 1 / (k_rrf + rank_i(d))
-        """
+        """Combina rankings de múltiples encoders usando Reciprocal Rank Fusion (RRF)."""
         rrf_scores: Dict[int, float] = {}
         item_map: Dict[int, Dict[str, Any]] = {}
 
         for rank_list in rank_lists:
             for rank_idx, item in enumerate(rank_list):
-                rank = rank_idx + 1  # Rangos basados en 1 (1-based index)
+                rank = rank_idx + 1
                 faiss_idx = item["_faiss_idx"]
 
                 if faiss_idx not in rrf_scores:
@@ -169,7 +213,6 @@ class SearchEngine:
 
                 rrf_scores[faiss_idx] += 1.0 / (k_rrf + rank)
 
-        # Ordenar los fragmentos candidatos por su puntaje RRF descendente
         sorted_indices = sorted(
             rrf_scores.keys(), key=lambda idx: rrf_scores[idx], reverse=True
         )
@@ -178,7 +221,7 @@ class SearchEngine:
         for idx in sorted_indices:
             cand = item_map[idx].copy()
             cand["score"] = float(rrf_scores[idx])
-            cand.pop("_faiss_idx", None)  # Limpiamos la clave interna de control
+            cand.pop("_faiss_idx", None)
             fused_candidates.append(cand)
 
         return fused_candidates
@@ -191,7 +234,6 @@ class SearchEngine:
                 cand.pop("_faiss_idx", None)
             return candidates
 
-        # Múltiples encoders: Recuperación independiente y Fusión RRF
         rank_lists = [
             self._search_single_encoder(enc, query_text, k) for enc in self.encoders
         ]
