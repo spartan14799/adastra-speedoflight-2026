@@ -31,7 +31,7 @@ class BaseExtractor(abc.ABC):
         cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
         return cleaned_text.strip()
 
-    def process(self, file_path: str, phenomenon: int = 1) -> List[Dict[str, Any]]:
+    def process(self, file_path: str, phenomenon: str = "1") -> List[Dict[str, Any]]:
         """
         Orquestador principal.
         Genera el contrato de datos exacto exigido por las restricciones de negocio.
@@ -70,7 +70,7 @@ class BaseExtractor(abc.ABC):
                     "tipo_fuente": "html",
                     "idioma": language,
                     "doc_id": doc_id,
-                    "Fenomeno": str(phenomenon)
+                    "Fenomeno": phenomenon
                 }
             }
             
@@ -143,24 +143,34 @@ class HTMLExtractor(BaseExtractor):
 
 
 if __name__ == "__main__":
-    # Solicitud estricta para la ruta del archivo
+    # 1. Única línea de ingreso: solicitud estricta para la ruta del archivo
     input_path = input("Ingrese la ruta del archivo HTML: ").strip()
     file_path = input_path.strip("\"'")
     
-    # Asignación del fenómeno (1, 2 o 3)
-    try:
-        fenomeno_input = int(input("Ingrese el número del fenómeno (1, 2 o 3): ").strip())
-        if fenomeno_input not in [1, 2, 3]:
-            fenomeno_input = 1
-    except ValueError:
-        fenomeno_input = 1
-
-    if not file_path or not os.path.exists(file_path):
+    # 2. Validaciones estrictas de extensión y existencia (Fallo Seguro -> Lista Vacía)
+    if not file_path.lower().endswith('.html') or not os.path.exists(file_path):
         print(json.dumps([]))
     else:
+        # 3. Asignación automática del fenómeno extrayendo el número de la carpeta contenedora
+        directorio_padre = os.path.basename(os.path.dirname(os.path.abspath(file_path)))
+        fenomeno_asociado = "1"  # Valor por defecto seguro
+        
+        if "3" in directorio_padre:
+            fenomeno_asociado = "3"
+        elif "2" in directorio_padre:
+            fenomeno_asociado = "2"
+        elif "1" in directorio_padre:
+            fenomeno_asociado = "1"
+            
         try:
             extractor = HTMLExtractor()
-            obtained_docs = extractor.process(file_path, phenomenon=fenomeno_input)
-            print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
-        except Exception as e:
+            obtained_docs = extractor.process(file_path, phenomenon=fenomeno_asociado)
+            
+            # Imprime estrictamente la LISTA completa, o una lista vacía si no hay resultados
+            if obtained_docs:
+                print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
+            else:
+                print(json.dumps([]))
+        except Exception:
+            # Retorna lista vacía en caso de que la ejecución falle por cualquier motivo interno
             print(json.dumps([]))

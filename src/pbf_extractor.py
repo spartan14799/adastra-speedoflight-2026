@@ -5,7 +5,7 @@ import os
 import uuid
 import tempfile
 import warnings
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 from langdetect import detect, LangDetectException
 
 # Supresión de warnings espaciales comunes para mantener logs limpios
@@ -43,63 +43,83 @@ class BaseExtractor(abc.ABC):
             
         return cleaned_text
 
-    def process(self, file_path: str, phenomenon: Union[int, str] = 1) -> List[Dict[str, Any]]:
+    def process(self, file_path: str) -> List[Dict[str, Any]]:
         """
         Orquestador principal. Mapea los documentos extraídos al esquema exacto 
         del contrato de datos esperado, consolidando toda la información en 
-        UNA SOLA LISTA con UN SOLO DICCIONARIO.
+        UNA SOLA LISTA con UN SOLO DICCIONARIO. En caso de error, retorna una lista vacía.
         """
-        extracted_documents = self.extract_documents(file_path)
-        source_name = os.path.basename(file_path)
-        tipo_fuente_original = "pbf"
-        
-        # Consolidación de todos los textos extraídos en un único string
-        textos_combinados = []
-        base_metadata = {}
-        doc_id = str(uuid.uuid4())
-
-        for doc in extracted_documents:
-            raw_text = doc.get("raw_text", "")
-            cleaned = self.clean_text(raw_text)
-            if cleaned:
-                textos_combinados.append(cleaned)
-            # Retenemos la metadata del primer documento válido como base
-            if not base_metadata and doc.get("metadata"):
-                base_metadata = doc.get("metadata", {})
-                doc_id = str(doc.get("doc_id") or doc_id)
-
-        texto_final = " ".join(textos_combinados)
-        texto_final = self.clean_text(texto_final)
-
-        if not texto_final:
-            return []
-
-        # Detección higiénica de idioma con fallback a español
         try:
-            language = detect(texto_final)
-            if language not in ['es', 'en', 'pt']:
-                language = 'es'
-        except LangDetectException:
-            language = "es"
+            # 1 y 3. Validación de la ruta: Si hay error o no existe, retorna lista vacía.
+            if not file_path or not os.path.exists(file_path):
+                return []
 
-        # Normalización del parámetro fenómeno
-        fenomeno_str = f"fenomeno {phenomenon}" if str(phenomenon).isdigit() else str(phenomenon)
+            extracted_documents = self.extract_documents(file_path)
+            if not extracted_documents:
+                return []
 
-        # Empaquetado estricto según Contrato de Datos RAG (1 solo diccionario en la lista)
-        output_schema = {
-            "texto": texto_final,
-            "metadata": {
-                "total_palabras": len(texto_final.split()),
-                "atributo_adicional": base_metadata.get("atributo_adicional", "pbf_document"),
-                "fuente": source_name,
-                "tipo_fuente": tipo_fuente_original,
-                "idioma": language,
-                "doc_id": doc_id,
-                "Fenomeno": fenomeno_str
+            source_name = os.path.basename(file_path)
+            tipo_fuente_original = "pbf"
+            
+            # Consolidación de todos los textos extraídos en un único string
+            textos_combinados = []
+            base_metadata = {}
+            doc_id = str(uuid.uuid4())
+
+            for doc in extracted_documents:
+                raw_text = doc.get("raw_text", "")
+                cleaned = self.clean_text(raw_text)
+                if cleaned:
+                    textos_combinados.append(cleaned)
+                # Retenemos la metadata del primer documento válido como base
+                if not base_metadata and doc.get("metadata"):
+                    base_metadata = doc.get("metadata", {})
+                    doc_id = str(doc.get("doc_id") or doc_id)
+
+            texto_final = " ".join(textos_combinados)
+            texto_final = self.clean_text(texto_final)
+
+            if not texto_final:
+                return []
+
+            # Detección higiénica de idioma con fallback a español
+            try:
+                language = detect(texto_final)
+                if language not in ['es', 'en', 'pt']:
+                    language = 'es'
+            except LangDetectException:
+                language = "es"
+
+            # 2. Extracción automática del Fenómeno a partir de la ruta del archivo
+            fenomeno_str = "fenomeno desconocido"
+            match_fenomeno = re.search(r'(?i)fen[oó]meno[_\s]*([123])', file_path)
+            if match_fenomeno:
+                fenomeno_str = f"fenomeno {match_fenomeno.group(1)}"
+            else:
+                # Fallback por si la carpeta solo se llama "1", "2" o "3"
+                match_num = re.search(r'[/\\]([123])[/\\]', file_path)
+                if match_num:
+                    fenomeno_str = f"fenomeno {match_num.group(1)}"
+
+            # Empaquetado estricto según Contrato de Datos RAG (1 solo diccionario en la lista)
+            output_schema = {
+                "texto": texto_final,
+                "metadata": {
+                    "total_palabras": len(texto_final.split()),
+                    "atributo_adicional": base_metadata.get("atributo_adicional", "pbf_document"),
+                    "fuente": source_name,
+                    "tipo_fuente": tipo_fuente_original,
+                    "idioma": language,
+                    "doc_id": doc_id,
+                    "Fenomeno": fenomeno_str
+                }
             }
-        }
 
-        return [output_schema]
+            return [output_schema]
+
+        except Exception:
+            # 3. Control estricto de excepciones: Ante cualquier fallo devuelve una lista completamente vacía.
+            return []
 
 
 class PBFExtractor(BaseExtractor):
@@ -246,11 +266,11 @@ class PBFExtractor(BaseExtractor):
 
     def extract_documents(self, file_path: str) -> List[Dict[str, Any]]:
         """Extrae el contenido de un archivo PBF convirtiéndolo y procesándolo higiénicamente."""
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"El archivo {file_path} no existe.")
+        if not file_path or not os.path.exists(file_path):
+            return []
             
         if not file_path.lower().endswith(".pbf"):
-            raise ValueError(f"Este extractor es estrictamente para archivos .pbf. Recibido: {file_path}")
+            return []
             
         raw_documents = []
         target_path = None
@@ -264,8 +284,9 @@ class PBFExtractor(BaseExtractor):
                 complete_data = json.load(f)
                 raw_documents.extend(self._unpack_objects(complete_data))
                 
-        except Exception as e:
-            raise RuntimeError(f"Fallo en procesamiento de {file_path}: {str(e)}")
+        except Exception:
+            # Captura higiénica de cualquier excepción para no romper la regla de retornar []
+            return []
         finally:
             if target_path and os.path.exists(target_path):
                 os.remove(target_path)
@@ -275,15 +296,16 @@ class PBFExtractor(BaseExtractor):
 
 if __name__ == "__main__":
     # Test Interactivo PBF
-    input_path = input("Ingrese la ruta del archivo (.pbf): ").strip()
-    file_path = input_path.strip("\"'")
-    
-    if not file_path or not os.path.exists(file_path):
-        print(json.dumps({"error": "Archivo no encontrado"}, ensure_ascii=False))
-    else:
-        try:
-            extractor = PBFExtractor()
-            obtained_docs = extractor.process(file_path, phenomenon=1)
-            print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
-        except Exception as e:
-            print(json.dumps({"error": str(e)}, ensure_ascii=False))
+    try:
+        input_path = input("Ingrese la ruta del archivo (.pbf): ").strip()
+        file_path = input_path.strip("\"'")
+        
+        extractor = PBFExtractor()
+        
+        # El fenómeno se deduce automáticamente dentro de process() a partir de la ruta
+        obtained_docs = extractor.process(file_path) 
+        
+        print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
+    except Exception:
+        # Garantía final de retornar lista vacía (como string JSON) en caso de fallos externos o interrupciones
+        print("[]")

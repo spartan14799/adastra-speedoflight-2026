@@ -126,27 +126,34 @@ class CSVExtractor(BaseExtractor):
 
 
 if __name__ == "__main__":
-    # Solicitud estricta para la ruta del archivo
+    # 1. Única línea de ingreso: solicitud estricta para la ruta del archivo
     input_path = input("Please enter the CSV file path on your device: ").strip()
     file_path = input_path.strip("\"'")
     
-    # Parámetro del fenómeno dinámico
-    fenomeno_input = input("Ingrese el Fenómeno asociado (1, 2 o 3): ").strip()
-    fenomeno_asociado = fenomeno_input if fenomeno_input in ["1", "2", "3"] else "1"
+    # 2. Asignación automática del fenómeno extrayendo el número de la carpeta contenedora
+    directorio_padre = os.path.basename(os.path.dirname(os.path.abspath(file_path)))
+    fenomeno_asociado = "1"  # Valor por defecto seguro
+    
+    if "3" in directorio_padre:
+        fenomeno_asociado = "3"
+    elif "2" in directorio_padre:
+        fenomeno_asociado = "2"
+    elif "1" in directorio_padre:
+        fenomeno_asociado = "1"
     
     if not file_path or not os.path.exists(file_path):
-        # Retorna diccionario vacío si no existe el archivo
-        print(json.dumps({}))
+        # 3. Retorna lista vacía si no existe el archivo o hay un error en la ruta
+        print(json.dumps([]))
     else:
         try:
             extractor = CSVExtractor()
             obtained_docs = extractor.process(file_path, phenomenon=fenomeno_asociado)
             
-            # Imprime estrictamente 1 DICCIONARIO (extrayéndolo de la lista)
+            # 1 y 3. Imprime estrictamente la LISTA completa, o una lista vacía si no hay resultados
             if obtained_docs:
-                print(json.dumps(obtained_docs[0], indent=2, ensure_ascii=False))
+                print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
             else:
-                print(json.dumps({}))
+                print(json.dumps([]))
         except Exception:
-            # Retorna diccionario vacío en caso de que la ejecución falle
-            print(json.dumps({}))
+            # 3. Retorna lista vacía en caso de que la ejecución falle por cualquier motivo
+            print(json.dumps([]))
