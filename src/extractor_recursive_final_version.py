@@ -666,26 +666,51 @@ class PDFExtractor(BaseExtractor):
 # ==========================================
 # 6. ENRUTADOR PRINCIPAL (Router)
 # ==========================================
+def obtener_ruta_relativa_desde_raw(ruta_actual: str, input_dir_base: str) -> str:
+    """
+    Busca la carpeta 'raw' en la ruta absoluta y devuelve todo lo que esté después de ella.
+    Si por algún motivo no la encuentra, usa la ruta relativa clásica.
+    """
+    ruta_norm = os.path.normpath(ruta_actual)
+    partes = ruta_norm.split(os.sep)
+    partes_lower = [p.lower() for p in partes]
+    
+    if 'raw' in partes_lower:
+        raw_idx = len(partes_lower) - 1 - partes_lower[::-1].index('raw')
+        partes_relativas = partes[raw_idx + 1:]
+        
+        if partes_relativas:
+            return os.path.join(*partes_relativas)
+        else:
+            return "" 
+    else:
+        return os.path.relpath(ruta_norm, input_dir_base)
+
+
 if __name__ == "__main__":
-    # 1. Solicitar rutas al usuario
-    input_dir = input("Ingrese la ruta de la carpeta con los archivos a procesar: ").strip().strip("\"'")
-    output_dir = input("Ingrese la ruta de la carpeta para guardar los resultados (.txt): ").strip().strip("\"'")
+    input_dir = input("Ingrese la ruta de la carpeta con los archivos a procesar (ej. ...\\data\\raw): ").strip().strip("\"'")
+    output_dir = input("Ingrese la ruta de la carpeta para guardar los resultados (.json) (ej. ...\\data\\processed): ").strip().strip("\"'")
+    
+    input_dir = os.path.abspath(os.path.normpath(input_dir))
+    output_dir = os.path.abspath(os.path.normpath(output_dir))
     
     if not os.path.exists(input_dir) or not os.path.isdir(input_dir):
         print(f"Error: La ruta de entrada no existe o no es una carpeta ({input_dir})")
         exit(1)
         
-    # Crear carpeta de salida si no existe
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
+    print("\n--- Replicando estructura de carpetas desde '\\raw' en adelante ---")
+    
+    for root, dirs, files in os.walk(input_dir):
+        rel_dir = obtener_ruta_relativa_desde_raw(root, input_dir)
+        target_dir = os.path.join(output_dir, rel_dir)
+        os.makedirs(target_dir, exist_ok=True)
         
     supported_exts = {'csv', 'html', 'htm', 'json', 'pbf', 'pdf'}
     archivos_procesados = 0
     archivos_fallidos = 0
     
-    print("\n--- Iniciando Procesamiento Recursivo ---")
+    print("\n--- Iniciando Procesamiento de Archivos ---")
     
-    # 2. Recorrer de forma recursiva la carpeta indicada
     for root, dirs, files in os.walk(input_dir):
         for file_name in files:
             file_path = os.path.join(root, file_name)
@@ -694,14 +719,16 @@ if __name__ == "__main__":
             if ext not in supported_exts:
                 continue
                 
-            # Asignación automática del fenómeno en cadena rígida
+            # Asignación de fenómeno basada estrictamente en el nombre de la carpeta base
             fenomeno_asociado = "1"
-            match_fenomeno = re.search(r'[/\\]?(fen[oó]meno[_\s]*([123])|([123]))[/\\]?', file_path, re.IGNORECASE)
+            file_path_lower = file_path.lower()
             
-            if match_fenomeno:
-                numero = match_fenomeno.group(2) or match_fenomeno.group(3)
-                if numero in ["1", "2", "3"]:
-                    fenomeno_asociado = numero
+            if "f1_ia_y_capacidades_estrategicas" in file_path_lower:
+                fenomeno_asociado = "1"
+            elif "f2_seguridad_entorno_espacial" in file_path_lower:
+                fenomeno_asociado = "2"
+            elif "f3_dinamicas_territoriales" in file_path_lower:
+                fenomeno_asociado = "3"
             
             extractor = None
             if ext == 'csv': extractor = CSVExtractor()
@@ -715,25 +742,24 @@ if __name__ == "__main__":
                 obtained_docs = extractor.process(file_path, phenomenon=fenomeno_asociado)
                 
                 if obtained_docs:
-                    # Crear nombre de salida seguro (mantiene contexto de subcarpetas en el nombre y evita colisiones)
-                    rel_path = os.path.relpath(file_path, input_dir)
-                    safe_name = rel_path.replace(os.sep, "_").rsplit('.', 1)[0] + ".txt"
-                    out_file_path = os.path.join(output_dir, safe_name)
+                    rel_dir = obtener_ruta_relativa_desde_raw(root, input_dir)
+                    target_dir = os.path.join(output_dir, rel_dir)
                     
-                    # 3. Almacenar el documento directamente como lista estructurada en un .txt
-                    with open(out_file_path, 'w', encoding='utf-8') as out_f:
-                        json.dump(obtained_docs, out_f, indent=2, ensure_ascii=False)
+                    base_name = os.path.splitext(file_name)[0]
+                    out_file_path = os.path.join(target_dir, f"{base_name}.json")
+                    
+                    with open(out_file_path, 'w', encoding='utf-8') as f:
+                        json.dump(obtained_docs, f, ensure_ascii=False, indent=4)
                         
-                    print(f"[ÉXITO] Procesado: {file_name} -> {safe_name}")
                     archivos_procesados += 1
+                    print(f"Procesado exitosamente: {os.path.basename(file_path)} -> Guardado en: {os.path.relpath(out_file_path, output_dir)}")
                 else:
-                    print(f"[VACÍO] Sin datos extraíbles: {file_name}")
+                    print(f"Sin contenido útil extraído: {file_path}")
                     
             except Exception as e:
-                print(f"[ERROR] Falló el procesamiento de {file_path}: {str(e)}")
                 archivos_fallidos += 1
-                
+                print(f"Error procesando {file_path}: {e}")
+
     print("\n--- Resumen de Procesamiento ---")
-    print(f"Total procesados con éxito: {archivos_procesados}")
-    print(f"Total con fallos: {archivos_fallidos}")
-    print(f"Resultados guardados en: {output_dir}")
+    print(f"Archivos procesados correctamente: {archivos_procesados}")
+    print(f"Archivos con fallos: {archivos_fallidos}")
