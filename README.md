@@ -5,6 +5,7 @@ Sistema de recuperación semántica y agregación de documentos heterogéneos de
 ---
 
 ## Descripción
+
 ### TODO: Crear el flujo de ejecución
 
 Este proyecto implementa un sistema de **búsqueda semántica** capaz de indexar documentos heterogéneos y recuperar la información más relevante mediante embeddings y una base vectorial utilizando **FAISS**.
@@ -69,6 +70,7 @@ uv sync
 ---
 
 ## Ejecución del Proyecto
+
 ### TODO: Crear el flujo de ejecución
 
 ## Estructura del Proyecto
@@ -79,15 +81,53 @@ uv sync
 │   ├── raw/
 │   └── queries.json
 ├── src/
+│   ├── __init__.py
+│   ├── build_dictionary.py
 │   └── search_engine.py
-├── entrega
-│    └── generador.py
-├── uv.lock
+├── entrega/
+│   ├── base_vectorial/
+│   │   ├── encoder_bge-m3/
+│   │   │   ├── dictionary.txt
+│   │   │   ├── index.faiss
+│   │   │   └── metadata.jsonl
+│   │   └── encoder_e5/
+│   │       ├── index.faiss
+│   │       └── metadata.jsonl
+│   ├── generador.py
+│   ├── informe_tecnico.pdf
+│   └── resultados.jsonl
 ├── pyproject.toml
+├── uv.lock
 └── README.md
 ```
 
 ---
+
+## Arquitectura y Funcionamiento
+
+El motor de búsqueda (`SearchEngine`) implementa una arquitectura **Multi-Encoder** sin el uso de modelos generativos, cumpliendo de forma estricta con las restricciones del reto.
+
+```text
+Entrada (Consulta)
+       │
+       ▼
+Preprocesamiento & Corrección Ortográfica (SymSpell)
+       │
+       ├─────────────────────────┬─────────────────────────┐
+       ▼                         ▼                         ▼
+Encoder 1 (BGE-M3)         Encoder 2 (E5)            Encoder N...
+       │                         │                         │
+  Índice FAISS 1            Índice FAISS 2            Índice FAISS N
+       │                         │                         │
+       └─────────────────────────┼─────────────────────────┘
+                                 ▼
+                     Fusión RRF (Reciprocal Rank Fusion)
+                                 │
+                   ┌─────────────┴─────────────┐
+                   ▼                           ▼
+      Top 10 Fragmentos              Top 3 Documentos
+   (<= 250 palabras / completitud)     (Max Pooling de Scores)
+```
 
 ## Tecnologías Utilizadas
 
