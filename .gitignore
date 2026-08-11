@@ -279,5 +279,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-
-data/
+data/*
+!data/processed/
+!data/processed/**
