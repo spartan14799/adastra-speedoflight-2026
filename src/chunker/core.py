@@ -1,31 +1,19 @@
-import json
 import re
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 
 import nltk
 from nltk.tokenize import sent_tokenize
-from transformers import AutoTokenizer
 
 # ---------------------------------------------------------------------
-# 1. Configuración y Recursos Lingüísticos (NLTK)
+# Configuración y Recursos Lingüísticos (NLTK)
 # ---------------------------------------------------------------------
 
 NLTK_LANGUAGE_MAP = {"es": "spanish", "en": "english", "pt": "portuguese"}
 
 ABREVIATURAS_DOMINIO = {
-    "art",
-    "num",
-    "pag",
-    "cap",
-    "vol",
-    "ee.uu",
-    "p.ej",
-    "cf",
-    "res",
-    "dec",
-    "ing",
-    "lic",
+    "art", "num", "pag", "cap", "vol", "ee.uu", "p.ej", "cf",
+    "res", "dec", "ing", "lic",
 }
 
 
@@ -99,14 +87,13 @@ def count_words(text: str) -> int:
 
 
 # ---------------------------------------------------------------------
-# 2. Configuración y Lógica Principales del Chunking
+# Configuración y Lógica Principales del Chunking
 # ---------------------------------------------------------------------
-
 
 @dataclass
 class ChunkingConfig:
-    max_words: int = 250  # Límite duro del reto (250 palabras)
-    overlap_sentences: int = 1  # Solapamiento de oraciones
+    max_words: int = 250
+    overlap_sentences: int = 1
     tokenizer: Optional[object] = None
 
 
@@ -131,7 +118,7 @@ def chunk_document(
 ) -> List[Dict]:
     """Fragmenta un texto garantizando completitud lingüística y límite de palabras."""
     if formato not in {"pdf", "html", "md"}:
-        formato = "pdf"  # Fallback predeterminado si viene otro tipo de formato
+        formato = "pdf"
 
     if idioma not in NLTK_LANGUAGE_MAP:
         idioma = "es"
@@ -199,81 +186,3 @@ def _build_chunk(
         "num_tokens": count_tokens_real(texto, config.tokenizer),
         "texto": texto,
     }
-
-
-# ---------------------------------------------------------------------
-# 3. Función Principal: Procesamiento de JSON y exportación a metadata.jsonl
-# ---------------------------------------------------------------------
-
-
-def procesar_json_a_metadata(
-    json_entrada_path: str,
-    output_metadata_path: str,
-    encoder_name: str = "BAAI/bge-m3",
-    max_words: int = 250,
-    overlap_sentences: int = 1,
-) -> None:
-    """
-    Lee los documentos en formato JSON, aplica el chunkeo con el tokenizer del encoder
-    y genera el archivo metadata.jsonl con la cabecera en la primera línea.
-    """
-    print(f"Cargando Tokenizer de: {encoder_name}...")
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(encoder_name)
-    except Exception as e:
-        print(
-            f"Error al cargar el tokenizer '{encoder_name}': {e}. Se usará la estimación por palabras."
-        )
-        tokenizer = None
-
-    config = ChunkingConfig(
-        max_words=max_words, overlap_sentences=overlap_sentences, tokenizer=tokenizer
-    )
-
-    print(f"Leyendo archivo de entrada: {json_entrada_path}...")
-    with open(json_entrada_path, "r", encoding="utf-8") as f:
-        documentos = json.load(f)
-
-    print(f"Generando {output_metadata_path}...")
-    with open(output_metadata_path, "w", encoding="utf-8") as f_out:
-        # Información del Encoder para el generador de FAISS
-        header_info = {
-            "type": "encoder_header",
-            "encoder_name": encoder_name,
-            "max_words": max_words,
-            "overlap_sentences": overlap_sentences,
-        }
-        f_out.write(json.dumps(header_info, ensure_ascii=False) + "\n")
-
-        # Chunks procesados
-        total_chunks = 0
-        for doc in documentos:
-            texto_limpio = doc.get("texto", "")
-            meta = doc.get("metadata", {})
-
-            # Mapeo de campos requeridos
-            doc_id = meta.get("doc_id", "DOC-000")
-            fuente = meta.get("fuente", "desconocido.pdf")
-            formato = meta.get("tipo_fuente", meta.get("formato", "pdf")).lower()
-
-            # Obtención del entero del fenómeno
-            fenomeno_raw = meta.get("Fenomeno", meta.get("fenomeno", 1))
-            fenomeno = int(fenomeno_raw)
-
-            idioma = meta.get("idioma", "es")
-
-            # Generar chunks del documento actual
-            chunks = chunk_document(
-                texto_limpio=texto_limpio,
-                doc_id=doc_id,
-                fuente=fuente,
-                formato=formato,
-                fenomeno=fenomeno,
-                idioma=idioma,
-                config=config,
-            )
-
-            # Escribir registros en formato JSON Lines
-            for chunk in chunks:
-                f_out.write(json.dumps(chunk, ensure_ascii=False) + "\n")
-                total_chunks += 1

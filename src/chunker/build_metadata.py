@@ -1,29 +1,29 @@
 import json
 import time
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 from transformers import AutoTokenizer
 
-# Reutilizacion directa del modulo src/chunker.py
-from src.chunker import ChunkingConfig, chunk_document
+from src.chunker.core import ChunkingConfig, chunk_document
 
 # ---------------------------------------------------------------------
-# Configuracion Global de Rutas y Encoders
+# Cálculo Dinámico de Rutas
 # ---------------------------------------------------------------------
-ROOT_DIR = Path(__file__).resolve().parent.parent
+CURRENT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = CURRENT_DIR.parent.parent
+
+CONFIG_PATH = CURRENT_DIR / "config.json"
 DEFAULT_INPUT_DIR = ROOT_DIR / "data" / "processed"
 DEFAULT_OUTPUT_BASE = ROOT_DIR / "entrega" / "base_vectorial"
 
-ENCODERS_CONFIG = [
-    {
-        "model_name": "BAAI/bge-m3",
-        "folder_name": "encoder_bge-m3",
-    },
-    {
-        "model_name": "intfloat/multilingual-e5-large",
-        "folder_name": "encoder_e5",
-    },
-]
+
+def cargar_configuracion(config_path: Path = CONFIG_PATH) -> Dict:
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"No se encontró el archivo de configuración: {config_path}"
+        )
+    with open(config_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def generar_metadata_por_encoder(
@@ -35,10 +35,6 @@ def generar_metadata_por_encoder(
     overlap_sentences: int = 1,
     log_interval: int = 25,
 ) -> None:
-    """
-    Procesa la lista de JSONs invocando la funcion chunk_document de src.chunker
-    y genera el archivo metadata.jsonl para el encoder correspondiente.
-    """
     model_name = encoder_info["model_name"]
     folder_name = encoder_info["folder_name"]
 
@@ -51,14 +47,13 @@ def generar_metadata_por_encoder(
     print(f"[RUTAS] Archivo destino: {output_filepath.relative_to(ROOT_DIR)}")
     print("=" * 70)
 
-    # Cargar Tokenizer
     try:
         print(f"[INFO] Cargando Tokenizer ({model_name})...")
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         print("[INFO] Tokenizer cargado exitosamente.")
     except Exception as e:
         print(
-            f"[ADVERTENCIA] No se pudo cargar el tokenizer {model_name}: {e}. Se usara estimacion."
+            f"[ADVERTENCIA] No se pudo cargar el tokenizer {model_name}: {e}. Se usará estimación."
         )
         tokenizer = None
 
@@ -76,9 +71,7 @@ def generar_metadata_por_encoder(
     start_time = time.time()
     last_heartbeat_time = start_time
 
-    # Procesar documentos
     with open(output_filepath, "w", encoding="utf-8") as f_out:
-        # Cabecera de metadatos del encoder
         header = {
             "type": "encoder_header",
             "encoder_name": model_name,
@@ -90,8 +83,6 @@ def generar_metadata_por_encoder(
         for idx, json_path in enumerate(json_files, 1):
             current_time = time.time()
 
-            # Indicador de estado y progreso activa (Heartbeat)
-            # Imprime cada 'log_interval' archivos o si han pasado mas de 10 segundos
             if (
                 idx == 1
                 or idx % log_interval == 0
@@ -134,7 +125,6 @@ def generar_metadata_por_encoder(
 
                 idioma = meta.get("idioma", "es")
 
-                # llamada a la funcion chunk_document
                 chunks = chunk_document(
                     texto_limpio=texto_limpio,
                     doc_id=doc_id,
@@ -164,11 +154,18 @@ def generar_metadata_por_encoder(
 def run_pipeline_build_metadata(
     input_dir: Path = DEFAULT_INPUT_DIR,
     output_base_dir: Path = DEFAULT_OUTPUT_BASE,
-    encoders: List[Dict[str, str]] = ENCODERS_CONFIG,
+    config_path: Path = CONFIG_PATH,
 ) -> None:
-    """
-    Escanea recursivamente input_dir y ejecuta la generacion de metadatos.
-    """
+    cfg = cargar_configuracion(config_path)
+    max_words = cfg.get("max_words", 250)
+    overlap_sentences = cfg.get("overlap_sentences", 1)
+    log_interval = cfg.get("log_interval", 25)
+    encoders = cfg.get("encoders", [])
+
+    if not encoders:
+        print("[ADVERTENCIA] No hay encoders definidos en config.json.")
+        return
+
     if not input_dir.exists():
         raise FileNotFoundError(f"El directorio de entrada no existe: {input_dir}")
 
@@ -186,6 +183,9 @@ def run_pipeline_build_metadata(
             json_files=json_files,
             input_base_dir=input_dir,
             output_base_dir=output_base_dir,
+            max_words=max_words,
+            overlap_sentences=overlap_sentences,
+            log_interval=log_interval,
         )
 
 
