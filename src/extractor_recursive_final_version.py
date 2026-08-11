@@ -16,6 +16,11 @@ import pdfplumber
 import pytesseract
 from PIL import Image
 
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+#It is extremely important to download tesseract in the computer that will process the files, and put the Directory where it will be because some pdfs could not be extracted properly without it
+#Here is the link to the github repository to download tesseract https://github.com/UB-Mannheim/tesseract/wiki
+
+
 # Supresión de warnings espaciales comunes para mantener logs limpios
 warnings.filterwarnings("ignore", category=UserWarning, module="geopandas")
 
@@ -536,7 +541,7 @@ class PDFExtractor(BaseExtractor):
             if text:
                 for line in text.split('\n'):
                     norm_line = re.sub(r'\d+', '', line).strip().lower()
-                    if len(norm_line) > 4: 
+                    if len(norm_line) > 4:
                         line_counter[norm_line] += 1
                         
         return {line for line, count in line_counter.items() if count >= threshold}
@@ -556,6 +561,48 @@ class PDFExtractor(BaseExtractor):
                 
             output_list.append(linea_limpia)
 
+    def _requires_ocr(self, page_text: Optional[str]) -> bool:
+        """
+        Evalúa si la página necesita OCR basándose no solo en la longitud,
+        sino en la calidad del texto para evitar falsos positivos con capas de texto corruptas.
+        """
+        if not page_text:
+            return True
+            
+        text_strip = page_text.strip()
+        
+        # Umbral aumentado a 100 caracteres
+        if len(text_strip) < 100:
+            return True
+            
+        # Validar la calidad del texto (ratio de caracteres alfanuméricos)
+        # Si menos del 60% del texto son letras o números, suele ser ruido de un mal OCR previo
+        alnum_count = sum(c.isalnum() for c in text_strip)
+        if len(text_strip) > 0 and (alnum_count / len(text_strip)) < 0.6:
+            return True
+            
+        return False
+
+    def _enhance_image_for_ocr(self, pil_img):
+        """
+        Aplica filtros de escala de grises, alto contraste y binarización 
+        para maximizar la legibilidad en tesseract (ideal para escaneos con sombras o ruidos).
+        """
+        try:
+            from PIL import ImageEnhance, ImageOps
+            # 1. Convertir a escala de grises
+            gray_img = ImageOps.grayscale(pil_img)
+            # 2. Aplicar filtro de alto contraste
+            enhancer = ImageEnhance.Contrast(gray_img)
+            enhanced_img = enhancer.enhance(2.0)
+            # 3. Binarización (Thresholding): convierte la imagen a blanco y negro puro ('1')
+            # Los píxeles más oscuros que 150 van a negro (0), el resto a blanco (255)
+            bw_img = enhanced_img.point(lambda x: 0 if x < 150 else 255, '1')
+            return bw_img
+        except ImportError:
+            # Fallback seguro
+            return pil_img
+
     def extract_documents(self, file_path: str) -> List[Dict[str, Any]]:
         raw_documents = []
         if not os.path.exists(file_path):
@@ -571,28 +618,28 @@ class PDFExtractor(BaseExtractor):
                     # Intento de extracción nativa directa
                     page_text = page.extract_text(x_tolerance=2, y_tolerance=3)
 
-                    # RUTINA FALLBACK OCR: Si el documento es un escaneo impreso, extract_text será None o muy corto.
-                    if not page_text or len(page_text.strip()) < 50:
+                    # RUTINA FALLBACK OCR: Evaluada con los nuevos umbrales de calidad
+                    if self._requires_ocr(page_text):
                         try:
                             # Renderizado de la página a imagen alta resolución
                             pil_img = page.to_image(resolution=300).original
                             
-                            # Intentamos detectar español por defecto (asumido para el dominio AD ASTRA)
+                            # Aplicación de filtros de optimización (Grayscale + Contrast + Binarization)
+                            pil_img_enhanced = self._enhance_image_for_ocr(pil_img)
+                            
+                            # Intentamos detectar español por defecto
                             try:
-                                ocr_text = pytesseract.image_to_string(pil_img, lang='spa')
+                                ocr_text = pytesseract.image_to_string(pil_img_enhanced, lang='spa')
                             except Exception:
-                                ocr_text = pytesseract.image_to_string(pil_img) # Fallback sin flag de idioma estricto
+                                ocr_text = pytesseract.image_to_string(pil_img_enhanced)
 
                             if ocr_text and ocr_text.strip():
                                 self._process_text_block(ocr_text, repetitive_artifacts, texto_completo)
-                                flag_procesamiento = "procesamiento_ocr_documento_escaneado"
+                                flag_procesamiento = "procesamiento_ocr_documento_escaneado_mejorado"
                                 
                         except Exception as e:
-                            # Falla silenciosa si Tesseract no está configurado en el sistema
-                            pass 
+                            pass # Se ignora fallo específico de la imagen para no truncar todo el PDF
                         
-                        # Al ser una imagen escaneada, no habrá objetos de tabla nativa para iterar,
-                        # saltamos al siguiente ciclo.
                         continue
                     
                     # --- RUTINA ORIGINAL (Pdfs Nativos) ---
@@ -620,7 +667,7 @@ class PDFExtractor(BaseExtractor):
                             headers = [str(h).replace('\n', ' ').strip() if h else f"Columna_{i+1}" for i, h in enumerate(extracted_table[0])]
                             for row in extracted_table[1:]:
                                 if not row or all(cell is None or str(cell).strip() == "" for cell in row):
-                                    continue 
+                                    continue
                                 row_sentences = []
                                 for i, raw_cell in enumerate(row):
                                     if not raw_cell or str(raw_cell).strip() == "": continue
@@ -661,8 +708,7 @@ class PDFExtractor(BaseExtractor):
             raise RuntimeError(f"Fallo de procesamiento en {file_path}: {str(e)}")
             
         return raw_documents
-
-
+    
 # ==========================================
 # 6. ENRUTADOR PRINCIPAL (Router)
 # ==========================================
