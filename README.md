@@ -6,14 +6,16 @@ Sistema de recuperación semántica y agregación de documentos heterogéneos de
 
 ## Descripción
 
-### TODO: Crear el flujo de ejecución
-
 Este proyecto implementa un sistema de **búsqueda semántica** capaz de indexar documentos heterogéneos y recuperar la información más relevante mediante embeddings y una base vectorial utilizando **FAISS**.
 
-El flujo de trabajo se divide en dos etapas:
+El flujo de trabajo se divide en las siguientes etapas:
 
-1. **Construcción de la base vectorial** a partir de los documentos fuente.
-2. **Procesamiento de consultas** para generar los resultados requeridos por la competencia.
+1. **Procesamiento de documentos:** los documentos procesados se almacenan en formato JSON dentro de `data/processed/`.
+2. **Fragmentación (chunking) y generación de metadatos:** antes de construir los índices vectoriales, el módulo de chunking divide los documentos en fragmentos siguiendo las reglas de segmentación configuradas y genera los metadatos asociados a cada fragmento.
+3. **Construcción de la base vectorial:** los fragmentos y sus metadatos se utilizan como entrada para la generación de los índices vectoriales de los encoders configurados.
+4. **Procesamiento de consultas:** el motor de búsqueda utiliza los índices disponibles para recuperar la información más relevante y generar los resultados requeridos por la competencia.
+
+La fase de **chunking y generación de metadatos** es un paso previo a la indexación y búsqueda. Su objetivo es producir una representación estructurada de los documentos, preservando la información necesaria para localizar y recuperar posteriormente cada fragmento.
 
 ---
 
@@ -71,7 +73,45 @@ uv sync
 
 ## Ejecución del Proyecto
 
-### TODO: Crear el flujo de ejecución
+### 1. Preparar los documentos
+
+Asegúrate de que los archivos JSON procesados estén disponibles en:
+
+```text
+data/processed/
+```
+
+Estos archivos constituyen la entrada para la fase de fragmentación y generación de metadatos.
+
+### 2. Ejecutar el chunking y la generación de metadatos
+
+Desde la raíz del proyecto, ejecuta:
+
+```bash
+uv run python -m src.chunker.build_metadata
+```
+
+Este comando ejecuta el módulo `src.chunker.build_metadata`, que:
+
+1. Lee los archivos JSON disponibles en `data/processed/`.
+2. Procesa los documentos utilizando las reglas de segmentación definidas por el módulo de chunking.
+3. Aplica las reglas de oraciones y palabras configuradas para controlar el tamaño de los fragmentos y su solapamiento.
+4. Genera los metadatos correspondientes a cada fragmento.
+5. Escribe los archivos `metadata.jsonl` dentro de `entrega/base_vectorial/`, creando la salida correspondiente para cada encoder configurado en `src/chunker/config.json`.
+
+La ejecución de este paso debe realizarse antes de la indexación vectorial, ya que los archivos `metadata.jsonl` contienen la información estructurada asociada a los fragmentos que posteriormente serán utilizados por el sistema de recuperación.
+
+### 3. Continuar con la construcción y búsqueda
+
+Una vez generados los metadatos, los archivos resultantes pueden utilizarse como entrada para las etapas posteriores de construcción de la base vectorial y procesamiento de consultas.
+
+La configuración de los encoders y de los parámetros utilizados por el chunker se encuentra en:
+
+```text
+src/chunker/config.json
+```
+
+---
 
 ## Estructura del Proyecto
 
@@ -79,11 +119,19 @@ uv sync
 .
 ├── data/
 │   ├── raw/
+│   ├── processed/
 │   └── queries.json
+├── docs/
+│   └── chunker.md
 ├── src/
-│   ├── __init__.py
+│   ├── chunker/
+│   │   ├── __init__.py
+│   │   ├── config.json
+│   │   ├── core.py
+│   │   └── build_metadata.py
 │   ├── build_dictionary.py
-│   └── search_engine.py
+│   ├── search_engine.py
+│   └── universal_extractor.py
 ├── entrega/
 │   ├── base_vectorial/
 │   │   ├── encoder_bge-m3/
@@ -107,7 +155,25 @@ uv sync
 
 El motor de búsqueda (`SearchEngine`) implementa una arquitectura **Multi-Encoder** sin el uso de modelos generativos, cumpliendo de forma estricta con las restricciones del reto.
 
+Antes de que los fragmentos lleguen a los índices FAISS, el módulo de chunking procesa los documentos y genera los metadatos que permiten mantener la relación entre cada fragmento y su documento de origen.
+
 ```text
+Documentos JSON
+       │
+       ▼
+data/processed/
+       │
+       ▼
+Chunking y generación de metadatos
+(src/chunker/build_metadata.py)
+       │
+       ▼
+metadata.jsonl por encoder
+       │
+       ▼
+Construcción de índices FAISS
+       │
+       ▼
 Entrada (Consulta)
        │
        ▼
@@ -128,6 +194,14 @@ Encoder 1 (BGE-M3)         Encoder 2 (E5)            Encoder N...
       Top 10 Fragmentos              Top 3 Documentos
    (<= 250 palabras / completitud)     (Max Pooling de Scores)
 ```
+
+## Documentación Adicional
+
+La carpeta `docs/` contiene documentación específica de los componentes del proyecto. En particular, `docs/chunker.md` describe en profundidad el funcionamiento del algoritmo de segmentación, el flujo de tokenización, la configuración de los tokenizers y los parámetros disponibles en `src/chunker/config.json`.
+
+La documentación del chunker complementa este README y debe consultarse para conocer con mayor detalle las reglas utilizadas durante la generación de fragmentos y metadatos.
+
+---
 
 ## Tecnologías Utilizadas
 
