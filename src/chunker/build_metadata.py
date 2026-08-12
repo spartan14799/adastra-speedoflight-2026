@@ -11,8 +11,9 @@ from src.chunker.core import ChunkingConfig, chunk_document
 # ---------------------------------------------------------------------
 CURRENT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = CURRENT_DIR.parent.parent
+SRC_DIR = CURRENT_DIR.parent
 
-CONFIG_PATH = CURRENT_DIR / "config.json"
+CONFIG_PATH = SRC_DIR / "config.json"
 DEFAULT_INPUT_DIR = ROOT_DIR / "data" / "processed"
 DEFAULT_OUTPUT_BASE = ROOT_DIR / "entrega" / "base_vectorial"
 
