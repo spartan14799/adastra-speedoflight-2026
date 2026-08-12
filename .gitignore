@@ -279,6 +279,8 @@ Thumbs.db
 .vscode/
 .idea/
 
+.python-version
+
 data/*
 !data/processed/
 !data/processed/**
