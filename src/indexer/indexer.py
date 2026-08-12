@@ -10,6 +10,7 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # ==========================================
 # Logging Configuration
 # ==========================================
@@ -19,6 +20,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger("FAISS_Indexer")
+
 
 # ==========================================
 # 1. FAISS Strategies (Strategy Pattern)
@@ -37,6 +39,7 @@ class FaissIndexStrategy(ABC):
         """Returns the file extension for this index type."""
         pass
 
+
 class FlatIndexStrategy(FaissIndexStrategy):
     """Exact Search (Inner Product for Cosine Similarity)."""
     
@@ -48,6 +51,7 @@ class FlatIndexStrategy(FaissIndexStrategy):
     
     def get_extension(self) -> str:
         return "flat"
+
 
 class IVFFlatIndexStrategy(FaissIndexStrategy):
     """Inverted File with Exact Post-Verification."""
@@ -75,6 +79,7 @@ class IVFFlatIndexStrategy(FaissIndexStrategy):
     def get_extension(self) -> str:
         return "ivfflat"
 
+
 class HNSWIndexStrategy(FaissIndexStrategy):
     """Hierarchical Navigable Small World graph search."""
     
@@ -93,7 +98,7 @@ class HNSWIndexStrategy(FaissIndexStrategy):
 
 
 # ==========================================
-# 2. Embedder (Encapsulation)
+# 2. Embedder (Encapsulation with Periodic Logging)
 # ==========================================
 
 class TextEmbedder:
@@ -105,22 +110,57 @@ class TextEmbedder:
         self.model = SentenceTransformer(encoder_name)
         logger.info(f"Model {encoder_name} loaded in {time.time() - start_time:.2f} seconds.")
         
-    def embed(self, texts: List[str]) -> np.ndarray:
-        logger.info(f"Starting to embed {len(texts)} chunks...")
+    def embed(
+        self, 
+        texts: List[str], 
+        batch_size: int = 32, 
+        log_interval_sec: float = 5.0
+    ) -> np.ndarray:
+        """
+        Embeds texts in batches with periodic 5-second progress logging.
+        """
+        total_chunks = len(texts)
+        logger.info(f"Starting embedding for {total_chunks} chunks (Batch size: {batch_size})...")
+        
         start_time = time.time()
-        
-        # ADD batch_size=16 (or even 8 if it still freezes)
-        embeddings = self.model.encode(
-            texts, 
-            batch_size=16, 
-            show_progress_bar=True, 
-            convert_to_numpy=True
-        )
-        
-        logger.info("Normalizing embeddings for Cosine Similarity...")
+        last_log_time = start_time
+        embeddings_list = []
+
+        for i in range(0, total_chunks, batch_size):
+            batch = texts[i : i + batch_size]
+            
+            # Encode mini-batch
+            batch_emb = self.model.encode(
+                batch,
+                convert_to_numpy=True,
+                show_progress_bar=False
+            )
+            embeddings_list.append(batch_emb)
+
+            current_chunk = min(i + batch_size, total_chunks)
+            now = time.time()
+
+            # Trigger a log message every 5 seconds (and at 100% completion)
+            if (now - last_log_time >= log_interval_sec) or (current_chunk == total_chunks):
+                elapsed = now - start_time
+                speed = current_chunk / elapsed if elapsed > 0 else 0
+                pct = (current_chunk / total_chunks) * 100
+                remaining_chunks = total_chunks - current_chunk
+                eta_sec = remaining_chunks / speed if speed > 0 else 0
+
+                logger.info(
+                    f"⏳ Progress: {current_chunk}/{total_chunks} chunks ({pct:.1f}%) | "
+                    f"Speed: {speed:.1f} chunks/s | "
+                    f"Elapsed: {elapsed/60:.1f}m | ETA: {eta_sec/60:.1f}m"
+                )
+                last_log_time = now
+
+        logger.info("Combining batch embeddings and normalizing for Cosine Similarity...")
+        embeddings = np.vstack(embeddings_list).astype(np.float32)
         faiss.normalize_L2(embeddings)
         
-        logger.info(f"Embedding completed in {time.time() - start_time:.2f} seconds.")
+        total_elapsed = time.time() - start_time
+        logger.info(f"✅ Embedding completed in {total_elapsed/60:.2f} minutes.")
         return embeddings
 
 
@@ -134,13 +174,18 @@ class VectorDatabaseBuilder:
     def __init__(self, strategies: List[FaissIndexStrategy]):
         self.strategies = strategies
 
-    def parse_jsonl(self, filepath: Path) -> Tuple[Dict[str, Any], List[str]]:
-        """Parses the JSONL file to extract metadata header and chunk texts."""
+    def parse_jsonl(
+        self, 
+        filepath: Path, 
+        log_interval_sec: float = 5.0
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """Parses JSONL file with periodic 5-second progress status."""
         metadata = {}
         texts = []
         
         logger.info(f"Parsing JSONL file: {filepath}")
         start_time = time.time()
+        last_log_time = start_time
         
         with open(filepath, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
@@ -150,10 +195,12 @@ class VectorDatabaseBuilder:
                 else:
                     texts.append(data.get("texto", ""))
                 
-                # Log progress every 5,000 lines so you know it's not frozen
-                if i > 0 and i % 100 == 0:
-                    logger.info(f"  ... Parsed {i} lines so far.")
-                    
+                # Check periodic log every 5 seconds
+                now = time.time()
+                if now - last_log_time >= log_interval_sec:
+                    logger.info(f" ... Still parsing JSONL: {len(texts)} chunks read so far (line {i + 1}).")
+                    last_log_time = now
+
         elapsed = time.time() - start_time
         logger.info(f"Finished parsing {len(texts)} texts in {elapsed:.2f} seconds.")
         return metadata, texts
@@ -177,8 +224,8 @@ class VectorDatabaseBuilder:
                 
             logger.info(f"=== Processing Directory: {encoder_dir.name} ===")
             
-            # 1. Parse JSONL
-            header, texts = self.parse_jsonl(jsonl_path)
+            # 1. Parse JSONL with 5s updates
+            header, texts = self.parse_jsonl(jsonl_path, log_interval_sec=5.0)
             if not header or "encoder_name" not in header:
                 logger.error(f"Invalid or missing header in {jsonl_path}. Skipping.")
                 continue
@@ -189,9 +236,9 @@ class VectorDatabaseBuilder:
                 logger.info(f"Limit applied: slicing down to {limit} chunks.")
                 texts = texts[:limit]
             
-            # 2. Embed Data
+            # 2. Embed Data with 5s status updates
             embedder = TextEmbedder(encoder_name)
-            embeddings = embedder.embed(texts)
+            embeddings = embedder.embed(texts, batch_size=32, log_interval_sec=5.0)
             
             # 3 & 4. Generate and save indices
             for strategy in self.strategies:
