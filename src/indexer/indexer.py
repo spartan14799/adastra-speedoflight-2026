@@ -9,6 +9,7 @@ from typing import List, Dict, Tuple, Any
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # ==========================================
 # Logging Configuration
 # ==========================================
@@ -108,8 +109,13 @@ class TextEmbedder:
         logger.info(f"Starting to embed {len(texts)} chunks...")
         start_time = time.time()
         
-        # show_progress_bar=True will show a tqdm progress bar in the terminal natively
-        embeddings = self.model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
+        # ADD batch_size=16 (or even 8 if it still freezes)
+        embeddings = self.model.encode(
+            texts, 
+            batch_size=16, 
+            show_progress_bar=True, 
+            convert_to_numpy=True
+        )
         
         logger.info("Normalizing embeddings for Cosine Similarity...")
         faiss.normalize_L2(embeddings)
