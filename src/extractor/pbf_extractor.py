@@ -8,118 +8,11 @@ import warnings
 from typing import Any, Dict, List
 from langdetect import detect, LangDetectException
 
+from .base import BaseExtractor
+
+
 # Supresión de warnings espaciales comunes para mantener logs limpios
 warnings.filterwarnings("ignore", category=UserWarning, module="geopandas")
-
-class BaseExtractor(abc.ABC):
-    """
-    Clase base abstracta para extracción y sanitización de texto RAG.
-    Garantiza el cumplimiento estricto del contrato de datos sin uso de LLMs.
-    """
-
-    @abc.abstractmethod
-    def extract_documents(self, file_path: str) -> List[Dict[str, Any]]:
-        pass
-
-    def clean_text(self, text: str) -> str:
-        if not text:
-            return ""
-        
-        # Eliminación de caracteres de control
-        cleaned_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-        
-        # Eliminación de textos repetitivos / boilerplate
-        boilerplate_patterns = r'(?i)^\s*(page \d+ of \d+|página \d+ de \d+|copyright \d+|derechos reservados|all rights reserved)\b.*$'
-        cleaned_text = re.sub(boilerplate_patterns, '', cleaned_text, flags=re.MULTILINE)
-        
-        # Normalización de espacios preservando estructura
-        cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
-        cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
-        
-        # Garantizar que el texto no finalice de forma abrupta preservando integridad oracional
-        cleaned_text = cleaned_text.strip()
-        if cleaned_text and not cleaned_text.endswith(('.', '?', '!')):
-            cleaned_text += "."
-            
-        return cleaned_text
-
-    def process(self, file_path: str) -> List[Dict[str, Any]]:
-        """
-        Orquestador principal. Mapea los documentos extraídos al esquema exacto 
-        del contrato de datos esperado, consolidando toda la información en 
-        UNA SOLA LISTA con UN SOLO DICCIONARIO. En caso de error, retorna una lista vacía.
-        """
-        try:
-            # 1 y 3. Validación de la ruta: Si hay error o no existe, retorna lista vacía.
-            if not file_path or not os.path.exists(file_path):
-                return []
-
-            extracted_documents = self.extract_documents(file_path)
-            if not extracted_documents:
-                return []
-
-            source_name = os.path.basename(file_path)
-            tipo_fuente_original = "pbf"
-            
-            # Consolidación de todos los textos extraídos en un único string
-            textos_combinados = []
-            base_metadata = {}
-            doc_id = str(uuid.uuid4())
-
-            for doc in extracted_documents:
-                raw_text = doc.get("raw_text", "")
-                cleaned = self.clean_text(raw_text)
-                if cleaned:
-                    textos_combinados.append(cleaned)
-                # Retenemos la metadata del primer documento válido como base
-                if not base_metadata and doc.get("metadata"):
-                    base_metadata = doc.get("metadata", {})
-                    doc_id = str(doc.get("doc_id") or doc_id)
-
-            texto_final = " ".join(textos_combinados)
-            texto_final = self.clean_text(texto_final)
-
-            if not texto_final:
-                return []
-
-            # Detección higiénica de idioma con fallback a español
-            try:
-                language = detect(texto_final)
-                if language not in ['es', 'en', 'pt']:
-                    language = 'es'
-            except LangDetectException:
-                language = "es"
-
-            # 2. Extracción automática del Fenómeno a partir de la ruta del archivo
-            fenomeno_str = "fenomeno desconocido"
-            match_fenomeno = re.search(r'(?i)fen[oó]meno[_\s]*([123])', file_path)
-            if match_fenomeno:
-                fenomeno_str = f"fenomeno {match_fenomeno.group(1)}"
-            else:
-                # Fallback por si la carpeta solo se llama "1", "2" o "3"
-                match_num = re.search(r'[/\\]([123])[/\\]', file_path)
-                if match_num:
-                    fenomeno_str = f"fenomeno {match_num.group(1)}"
-
-            # Empaquetado estricto según Contrato de Datos RAG (1 solo diccionario en la lista)
-            output_schema = {
-                "texto": texto_final,
-                "metadata": {
-                    "total_palabras": len(texto_final.split()),
-                    "atributo_adicional": base_metadata.get("atributo_adicional", "pbf_document"),
-                    "fuente": source_name,
-                    "tipo_fuente": tipo_fuente_original,
-                    "idioma": language,
-                    "doc_id": doc_id,
-                    "Fenomeno": fenomeno_str
-                }
-            }
-
-            return [output_schema]
-
-        except Exception:
-            # 3. Control estricto de excepciones: Ante cualquier fallo devuelve una lista completamente vacía.
-            return []
 
 
 class PBFExtractor(BaseExtractor):
@@ -128,6 +21,9 @@ class PBFExtractor(BaseExtractor):
     Aplica consolidación forzada de colecciones geográficas y procesamiento 
     estructurado de coordenadas usando la conversión GeoJSON subyacente.
     """
+    @property
+    def tipo_fuente(self) -> str:
+        return "pbf"
 
     def _convert_pbf_to_json(self, pbf_path: str) -> str:
         """
@@ -294,18 +190,3 @@ class PBFExtractor(BaseExtractor):
         return raw_documents
 
 
-if __name__ == "__main__":
-    # Test Interactivo PBF
-    try:
-        input_path = input("Ingrese la ruta del archivo (.pbf): ").strip()
-        file_path = input_path.strip("\"'")
-        
-        extractor = PBFExtractor()
-        
-        # El fenómeno se deduce automáticamente dentro de process() a partir de la ruta
-        obtained_docs = extractor.process(file_path) 
-        
-        print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
-    except Exception:
-        # Garantía final de retornar lista vacía (como string JSON) en caso de fallos externos o interrupciones
-        print("[]")
