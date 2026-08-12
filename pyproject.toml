@@ -1,7 +1,7 @@
 [project]
 name = "adastra-speedoflight-2026"
 version = "0.1.0"
-requires-python = ">=3.14"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "beautifulsoup4>=4.15.0",
     "faiss-cpu>=1.7.4",
@@ -9,6 +9,7 @@ dependencies = [
     "langdetect>=1.0.9",
     "nltk>=3.10.2",
     "numpy>=1.24.0",
+    "orjson>=3.11.9",
     "osmium>=4.3.1",
     "pandas>=3.0.5",
     "pdfplumber>=0.11.10",
@@ -17,7 +18,8 @@ dependencies = [
     "pytesseract>=0.3.13",
     "sentence-transformers>=2.2.2",
     "symspellpy>=6.7.7",
-    "transformers>=5.14.1",
+    "torch-directml>=0.2.5.dev240914",
+    "transformers<4.45",
 ]
 
 [dependency-groups]
