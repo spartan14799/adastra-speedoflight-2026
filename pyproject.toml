@@ -19,6 +19,7 @@ dependencies = [
     "sentence-transformers>=2.2.2",
     "symspellpy>=6.7.7",
     "torch-directml>=0.2.5.dev240914",
+    "tqdm>=4.70.0",
     "transformers<4.45",
 ]
 

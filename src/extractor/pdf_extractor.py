@@ -6,6 +6,8 @@ import uuid
 from collections import Counter
 from typing import Any, Dict, List, Set, Optional
 
+from .base import BaseExtractor
+
 try:
     import pdfplumber
 except ImportError:
@@ -15,76 +17,6 @@ try:
     from langdetect import detect, LangDetectException
 except ImportError:
     raise ImportError("La biblioteca 'langdetect' es requerida. Ejecuta: pip install langdetect")
-
-
-class BaseExtractor(abc.ABC):
-    """
-    Clase base abstracta para la extracción y sanitización de texto.
-    Garantiza el Contrato de Datos estricto requerido para sistemas RAG sin LLMs.
-    """
-    
-    @property
-    @abc.abstractmethod
-    def tipo_fuente(self) -> str:
-        pass
-
-    @abc.abstractmethod
-    def extract_documents(self, file_path: str) -> List[Dict[str, Any]]:
-        pass
-
-    def clean_text(self, text: str) -> str:
-        if not text:
-            return ""
-            
-        # 1. Remoción de caracteres de control (excepto puntuación vital y saltos de línea estructurados)
-        cleaned_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-        
-        # 2. Limpieza de artefactos remanentes (espacios múltiples o tabulaciones)
-        cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
-        
-        return cleaned_text.strip()
-
-    def process(self, file_path: str, phenomenon: str = "1") -> List[Dict[str, Any]]:
-        """
-        Orquestador principal que genera el contrato de datos exacto exigido.
-        """
-        extracted_documents = self.extract_documents(file_path)
-        final_results = []
-        source_name = os.path.basename(file_path)
-
-        for doc in extracted_documents:
-            raw_text = doc.get("raw_text", "")
-            cleaned_text = self.clean_text(raw_text)
-            
-            if not cleaned_text:
-                continue
-            
-            # Detección de idioma higiénica
-            try:
-                language = detect(cleaned_text)
-            except LangDetectException:
-                language = "es"  # Fallback por defecto
-                
-            base_metadata = doc.get("metadata", {})
-            doc_id = doc.get("doc_id", str(uuid.uuid4()))
-
-            # Empaquetado estricto cumpliendo el contrato de datos
-            output_schema = {
-                "texto": cleaned_text,
-                "metadata": {
-                    "total_palabras": len(cleaned_text.split()),
-                    "atributo_adicional": base_metadata.get("atributo_adicional", "vacio_o_especifico_del_formato"),
-                    "fuente": source_name,
-                    "tipo_fuente": self.tipo_fuente,
-                    "idioma": language,
-                    "doc_id": doc_id,
-                    "Fenomeno": phenomenon
-                }
-            }
-            
-            final_results.append(output_schema)
-
-        return final_results
 
 
 class PDFExtractor(BaseExtractor):
@@ -169,7 +101,7 @@ class PDFExtractor(BaseExtractor):
                     for table_obj in (tables or []):
                         bbox = table_obj.bbox  # (x0, top, x1, bottom)
                         
-                        # 1. Extraer texto previo a la tabla
+                        # Extraer texto previo a la tabla
                         if current_y < bbox[1]:
                             crop_box = (0, current_y, page_width, bbox[1])
                             try:
@@ -179,7 +111,7 @@ class PDFExtractor(BaseExtractor):
                             except ValueError:
                                 pass 
                                 
-                        # 2. Lógica de extracción tabular orientada a FILAS (Evita rotura relacional)
+                        # Lógica de extracción tabular orientada a FILAS (Evita rotura relacional)
                         extracted_table = table_obj.extract()
                         if extracted_table and len(extracted_table) > 1:
                             # Normalizar encabezados
@@ -211,7 +143,7 @@ class PDFExtractor(BaseExtractor):
                         # Mover el puntero espacial al final de la tabla
                         current_y = max(current_y, bbox[3])
                     
-                    # 3. Extraer texto posterior a la última tabla
+                    # Extraer texto posterior a la última tabla
                     if current_y < page_height:
                         crop_box = (0, current_y, page_width, page_height)
                         try:
@@ -221,7 +153,7 @@ class PDFExtractor(BaseExtractor):
                         except ValueError:
                             pass
 
-            # 4. Reconstrucción con Integridad Oracional
+            # Reconstrucción con Integridad Oracional
             texto_unificado = ""
             for linea in texto_completo:
                 if not linea:
@@ -246,35 +178,3 @@ class PDFExtractor(BaseExtractor):
         return raw_documents
 
 
-if __name__ == "__main__":
-    # 1. Única línea de ingreso: solicitud estricta para la ruta del archivo
-    input_path = input("Ingresa la ruta del archivo PDF: ").strip()
-    file_path = input_path.strip("\"'")
-    
-    # 2. Validaciones estrictas de extensión y existencia (Fallo Seguro -> Lista Vacía)
-    if not file_path.lower().endswith('.pdf') or not os.path.exists(file_path):
-        print(json.dumps([]))
-    else:
-        # 3. Asignación automática del fenómeno extrayendo el número de la carpeta contenedora
-        directorio_padre = os.path.basename(os.path.dirname(os.path.abspath(file_path)))
-        fenomeno_asociado = "1"  # Valor por defecto seguro
-        
-        if "3" in directorio_padre:
-            fenomeno_asociado = "3"
-        elif "2" in directorio_padre:
-            fenomeno_asociado = "2"
-        elif "1" in directorio_padre:
-            fenomeno_asociado = "1"
-            
-        try:
-            extractor = PDFExtractor()
-            obtained_docs = extractor.process(file_path, phenomenon=fenomeno_asociado)
-            
-            # Imprime estrictamente la LISTA completa, o una lista vacía si no hay resultados
-            if obtained_docs:
-                print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
-            else:
-                print(json.dumps([]))
-        except Exception:
-            # Retorna lista vacía en caso de que la ejecución falle por cualquier motivo interno
-            print(json.dumps([]))

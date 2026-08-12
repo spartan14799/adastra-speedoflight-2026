@@ -6,72 +6,7 @@ import uuid
 from typing import Any, Dict, List
 from langdetect import detect, LangDetectException
 
-class BaseExtractor(abc.ABC):
-    """
-    Abstract base class for text extraction and sanitization.
-    Strictly adjusted to return the Data Contract required for RAG systems.
-    """
-
-    @abc.abstractmethod
-    def extract_documents(self, file_path: str) -> List[Dict[str, Any]]:
-        pass
-
-    def clean_text(self, text: str) -> str:
-        if not text:
-            return ""
-        # Removal of control characters
-        cleaned_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-        # Removal of boilerplate (repetitive headers, copyrights, etc.)
-        boilerplate_patterns = r'(?i)^\s*(page \d+ of \d+|página \d+ de \d+|copyright \d+|derechos reservados|all rights reserved)\b.*$'
-        cleaned_text = re.sub(boilerplate_patterns, '', cleaned_text, flags=re.MULTILINE)
-        # Space normalization
-        cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
-        cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
-        return cleaned_text.strip()
-
-    def process(self, file_path: str, phenomenon: int = 1) -> List[Dict[str, Any]]:
-        """
-        Main orchestrator.
-        Generates the exact data contract demanded by business constraints.
-        """
-        extracted_documents = self.extract_documents(file_path)
-        final_results = []
-        source_name = os.path.basename(file_path)
-
-        for idx, doc in enumerate(extracted_documents, start=1):
-            raw_text = doc.get("raw_text", "")
-            cleaned_text = self.clean_text(raw_text)
-            
-            if not cleaned_text:
-                continue
-            
-            # Hygienic language detection
-            try:
-                language = detect(cleaned_text)
-            except LangDetectException:
-                language = "es"
-                
-            base_metadata = doc.get("metadata", {})
-            doc_id = doc.get("doc_id", str(uuid.uuid4()))
-
-            # Package all context exclusively within metadata
-            doc_metadata = base_metadata.copy()
-            doc_metadata["doc_id"] = doc_id
-            doc_metadata["phenomenon"] = phenomenon
-            doc_metadata["total_words"] = len(cleaned_text.split())
-            doc_metadata["fuente"] = source_name
-            doc_metadata["tipo_fuente"] = "json"
-            doc_metadata["idioma"] = language
-            
-            # Strict adaptation to the output schema (Inviolable Data Contract)
-            output_schema = {
-                "texto": cleaned_text,
-                "metadata": doc_metadata
-            }
-            
-            final_results.append(output_schema)
-
-        return final_results
+from .base import BaseExtractor
 
 
 class JSONExtractor(BaseExtractor):
@@ -80,6 +15,11 @@ class JSONExtractor(BaseExtractor):
     Includes logic for omitting heavy metadata (images) and 
     now explicitly injects links into the raw text.
     """
+
+    @property
+    def tipo_fuente(self) -> str:
+        return "json"
+
     def _process_article(self, item: Dict[str, Any]) -> Dict[str, Any]:
         doc_id = str(item.get("doc_id") or item.get("id") or uuid.uuid4())
         
@@ -114,7 +54,7 @@ class JSONExtractor(BaseExtractor):
                 text_blocks.append(str(paragraphs).strip())
 
         # =========================================================================
-        # REFACTORING: Dynamic metadata configuration and link injection
+        # Dynamic metadata configuration and link injection
         # =========================================================================
         text_keys = {"title", "titulo", "sections", "lists", "body_text", "body_paragraphs", "id", "doc_id"}
         image_patterns = {"image", "img", "thumbnail", "picture", "figure", "photo", "url", "cover", "portada"}
@@ -199,20 +139,3 @@ class JSONExtractor(BaseExtractor):
         return raw_documents
 
 
-if __name__ == "__main__":
-    # Solicitud estricta en inglés para la ruta del archivo
-    input_path = input("Please enter the file path on your device: ").strip()
-    file_path = input_path.strip("\"'")
-    
-    if not file_path or not os.path.exists(file_path):
-        # Retorna lista vacía si no existe el archivo
-        print(json.dumps([]))
-    else:
-        try:
-            extractor = JSONExtractor()
-            obtained_docs = extractor.process(file_path)
-            # Imprime estrictamente el JSON limpio sin más líneas en consola
-            print(json.dumps(obtained_docs, indent=2, ensure_ascii=False))
-        except Exception:
-            # Retorna lista vacía en caso de que la ejecución falle
-            print(json.dumps([]))
