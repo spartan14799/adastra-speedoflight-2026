@@ -76,9 +76,6 @@ La documentación detallada está separada por responsabilidad para evitar conce
 | Indexación        | [`docs/indexer.md`](docs/indexer.md)             |
 | Motor de búsqueda | [`docs/search_engine.md`](docs/search_engine.md) |
 
-También está disponible el índice completo de documentación:
-
-[`docs/README.md`](docs/README.md)
 
 ## Requisitos
 
