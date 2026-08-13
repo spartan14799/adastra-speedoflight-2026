@@ -8,7 +8,7 @@ Este archivo contiene la información necesaria para instalar, ejecutar y navega
 
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Documentación](#documentación)
-- [Archivos Pesados y Git LFs](#Archivos pesados y Git LFS)
+- [Archivos Pesados y Git LFs](#archivos-pesados-y-Git-LFS)
 - [Requisitos](#requisitos)
 - [Instalación](#instalación)
 - [Workflow](#workflow)
