@@ -8,6 +8,7 @@ Este archivo contiene la información necesaria para instalar, ejecutar y navega
 
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Documentación](#documentación)
+- [Archivos Pesados y Git LFs](#archivos-pesados-y-Git-LFS)
 - [Requisitos](#requisitos)
 - [Instalación](#instalación)
 - [Workflow](#workflow)
@@ -76,6 +77,24 @@ La documentación detallada está separada por responsabilidad para evitar conce
 | Indexación        | [`docs/indexer.md`](docs/indexer.md)             |
 | Motor de búsqueda | [`docs/search_engine.md`](docs/search_engine.md) |
 
+## Archivos pesados y Git LFS
+
+Algunos archivos grandes del repositorio están gestionados mediante Git LFS, incluyendo archivos procesados, índices FAISS, archivos JSONL y grafos GraphML.
+
+Si deseas utilizar los archivos ya incluidos en el repositorio, asegúrate de tener Git LFS instalado y ejecuta:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+Puedes verificar los archivos gestionados por Git LFS con:
+
+```bash
+git lfs ls-files
+```
+
+La configuración de los archivos gestionados se encuentra en `.gitattributes`.
 
 ## Requisitos
 
