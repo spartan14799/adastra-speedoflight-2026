@@ -1,218 +1,282 @@
-# Proyecto Ad Astra - Buscador Semántico
+# Ad Astra
 
-Sistema de recuperación semántica y agregación de documentos heterogéneos desarrollado para el reto **CODEFEST AD ASTRA**.
+Documentación principal del repositorio.
 
----
+Este archivo contiene la información necesaria para instalar, ejecutar y navegar por el código. La documentación técnica detallada de cada módulo se encuentra en [`docs/`](docs/README.md).
 
-## Descripción
+## Tabla de contenidos
 
-Este proyecto implementa un sistema de **búsqueda semántica** capaz de indexar documentos heterogéneos y recuperar la información más relevante mediante embeddings y una base vectorial utilizando **FAISS**.
+- [Estructura del repositorio](#estructura-del-repositorio)
+- [Documentación](#documentación)
+- [Requisitos](#requisitos)
+- [Instalación](#instalación)
+- [Workflow](#workflow)
+- [Ejecución](#ejecución)
+- [Pruebas](#pruebas)
+- [Entrega](#entrega)
 
-El flujo de trabajo se divide en las siguientes etapas:
-
-1. **Procesamiento de documentos:** los documentos procesados se almacenan en formato JSON dentro de `data/processed/`.
-2. **Fragmentación (chunking) y generación de metadatos:** antes de construir los índices vectoriales, el módulo de chunking divide los documentos en fragmentos siguiendo las reglas de segmentación configuradas y genera los metadatos asociados a cada fragmento.
-3. **Construcción de la base vectorial:** los fragmentos y sus metadatos se utilizan como entrada para la generación de los índices vectoriales de los encoders configurados.
-4. **Procesamiento de consultas:** el motor de búsqueda utiliza los índices disponibles para recuperar la información más relevante y generar los resultados requeridos por la competencia.
-
-La fase de **chunking y generación de metadatos** es un paso previo a la indexación y búsqueda. Su objetivo es producir una representación estructurada de los documentos, preservando la información necesaria para localizar y recuperar posteriormente cada fragmento.
-
----
-
-## Requisitos Previos
-
-Antes de comenzar, asegúrate de tener instalado:
-
-- **Python 3.10** o superior.
-- **uv** (gestor de paquetes recomendado para un entorno rápido y reproducible).
-
----
-
-## Instalación de `uv`
-
-Si aún no tienes `uv` instalado, utiliza uno de los siguientes métodos.
-
-### Linux / macOS
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-### Windows (PowerShell)
-
-```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-### Instalación mediante pip
-
-```bash
-pip install uv
-```
-
----
-
-## Configuración del Proyecto
-
-Clona el repositorio:
-
-```bash
-git clone https://github.com/spartan14799/adastra-speedoflight-2026
-cd codefest-ad-astra
-```
-
-Instala todas las dependencias utilizando **uv**:
-
-```bash
-uv sync
-```
-
-> **Nota:** `uv` crea y administra automáticamente el entorno virtual, por lo que **no es necesario activarlo manualmente**.
-
----
-
-## Ejecución del Proyecto
-
-### 1. Preparar los documentos
-
-Asegúrate de que los archivos JSON procesados estén disponibles en:
-
-```text
-data/processed/
-```
-
-Estos archivos constituyen la entrada para la fase de fragmentación y generación de metadatos.
-
-### 2. Ejecutar el chunking y la generación de metadatos
-
-Desde la raíz del proyecto, ejecuta:
-
-```bash
-uv run python -m src.chunker.build_metadata
-```
-
-Este comando ejecuta el módulo `src.chunker.build_metadata`, que:
-
-1. Lee los archivos JSON disponibles en `data/processed/`.
-2. Procesa los documentos utilizando las reglas de segmentación definidas por el módulo de chunking.
-3. Aplica las reglas de oraciones y palabras configuradas para controlar el tamaño de los fragmentos y su solapamiento.
-4. Genera los metadatos correspondientes a cada fragmento.
-5. Escribe los archivos `metadata.jsonl` dentro de `entrega/base_vectorial/`, creando la salida correspondiente para cada encoder configurado en `src/chunker/config.json`.
-
-La ejecución de este paso debe realizarse antes de la indexación vectorial, ya que los archivos `metadata.jsonl` contienen la información estructurada asociada a los fragmentos que posteriormente serán utilizados por el sistema de recuperación.
-
-### 3. Continuar con la construcción y búsqueda
-
-Una vez generados los metadatos, los archivos resultantes pueden utilizarse como entrada para las etapas posteriores de construcción de la base vectorial y procesamiento de consultas.
-
-La configuración de los encoders y de los parámetros utilizados por el chunker se encuentra en:
-
-```text
-src/chunker/config.json
-```
-
----
-
-## Estructura del Proyecto
+## Estructura del repositorio
 
 ```text
 .
 ├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── queries.json
 ├── docs/
-│   └── chunker.md
-├── src/
-│   ├── chunker/
-│   │   ├── __init__.py
-│   │   ├── config.json
-│   │   ├── core.py
-│   │   └── build_metadata.py
-│   ├── build_dictionary.py
-│   ├── search_engine.py
-│   └── universal_extractor.py
+│   ├── README.md
+│   ├── extractor.md
+│   ├── chunker.md
+│   ├── graph.md
+│   ├── indexer.md
+│   └── search_engine.md
 ├── entrega/
 │   ├── base_vectorial/
 │   │   ├── encoder_bge-m3/
-│   │   │   ├── dictionary.txt
 │   │   │   ├── index.faiss
 │   │   │   └── metadata.jsonl
 │   │   └── encoder_e5/
 │   │       ├── index.faiss
 │   │       └── metadata.jsonl
+│   ├── grafo/
+│   │   └── grafo.graphml
 │   ├── generador.py
 │   ├── informe_tecnico.pdf
 │   └── resultados.jsonl
+├── src/
+│   ├── chunker/
+│   ├── extractor/
+│   ├── graph/
+│   ├── indexer/
+│   └── search_engine/
+├── tests/
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
+````
+
+## Directorios principales
+
+| Ruta             | Descripción                                                         |
+| ---------------- | ------------------------------------------------------------------- |
+| `data/`          | Archivos de entrada utilizados durante la ejecución.                |
+| `src/`           | Código fuente organizado por módulos.                               |
+| `tests/`         | Pruebas del proyecto.                                               |
+| `docs/`          | Documentación técnica detallada.                                    |
+| `entrega/`       | Archivos y artefactos requeridos para la ejecución final y entrega. |
+| `pyproject.toml` | Configuración del proyecto y dependencias.                          |
+| `uv.lock`        | Versiones bloqueadas de las dependencias.                           |
+
+## Documentación
+
+La documentación detallada está separada por responsabilidad para evitar concentrar toda la información técnica en este archivo.
+
+| Módulo            | Documentación                                    |
+| ----------------- | ------------------------------------------------ |
+| Extracción        | [`docs/extractor.md`](docs/extractor.md)         |
+| Fragmentación     | [`docs/chunker.md`](docs/chunker.md)             |
+| Grafo             | [`docs/graph.md`](docs/graph.md)                 |
+| Indexación        | [`docs/indexer.md`](docs/indexer.md)             |
+| Motor de búsqueda | [`docs/search_engine.md`](docs/search_engine.md) |
+
+También está disponible el índice completo de documentación:
+
+[`docs/README.md`](docs/README.md)
+
+## Requisitos
+
+El repositorio utiliza `uv` como gestor de paquetes y entorno de ejecución.
+
+Todos los comandos documentados deben ejecutarse desde la raíz del repositorio.
+
+## Instalación
+
+Sincroniza las dependencias:
+
+```bash
+uv sync
 ```
 
----
+`uv` utiliza `pyproject.toml` y `uv.lock` para preparar el entorno con las versiones definidas por el proyecto.
 
-## Arquitectura y Funcionamiento
+## Workflow
 
-El motor de búsqueda (`SearchEngine`) implementa una arquitectura **Multi-Encoder** sin el uso de modelos generativos, cumpliendo de forma estricta con las restricciones del reto.
-
-Antes de que los fragmentos lleguen a los índices FAISS, el módulo de chunking procesa los documentos y genera los metadatos que permiten mantener la relación entre cada fragmento y su documento de origen.
+El flujo general de trabajo del repositorio es:
 
 ```text
-Documentos JSON
-       │
-       ▼
-data/processed/
-       │
-       ▼
-Chunking y generación de metadatos
-(src/chunker/build_metadata.py)
-       │
-       ▼
-metadata.jsonl por encoder
-       │
-       ▼
-Construcción de índices FAISS
-       │
-       ▼
-Entrada (Consulta)
-       │
-       ▼
-Preprocesamiento & Corrección Ortográfica (SymSpell)
-       │
-       ├─────────────────────────┬─────────────────────────┐
-       ▼                         ▼                         ▼
-Encoder 1 (BGE-M3)         Encoder 2 (E5)            Encoder N...
-       │                         │                         │
-  Índice FAISS 1            Índice FAISS 2            Índice FAISS N
-       │                         │                         │
-       └─────────────────────────┼─────────────────────────┘
-                                 ▼
-                     Fusión RRF (Reciprocal Rank Fusion)
-                                 │
-                   ┌─────────────┴─────────────┐
-                   ▼                           ▼
-      Top 10 Fragmentos              Top 3 Documentos
-   (<= 250 palabras / completitud)     (Max Pooling de Scores)
+data/
+  │
+  ▼
+src/extractor/
+  │
+  ▼
+src/chunker/
+  │
+  ├──────────────► src/graph/
+  │
+  └──────────────► src/indexer/
+                       │
+                       ▼
+                 src/search_engine/
+                       │
+                       ▼
+                    entrega/
 ```
 
-## Documentación Adicional
+El workflow recomendado para trabajar con el código es:
 
-La carpeta `docs/` contiene documentación específica de los componentes del proyecto. En particular, `docs/chunker.md` describe en profundidad el funcionamiento del algoritmo de segmentación, el flujo de tokenización, la configuración de los tokenizers y los parámetros disponibles en `src/chunker/config.json`.
+1. Instalar las dependencias con `uv sync`.
+2. Revisar la documentación del módulo que se desea modificar.
+3. Ejecutar únicamente el módulo necesario durante el desarrollo.
+4. Ejecutar el workflow completo cuando se requiera regenerar los artefactos.
+5. Ejecutar las pruebas correspondientes desde `tests/`.
+6. Ejecutar el generador principal para producir los archivos de salida de `entrega/`.
 
-La documentación del chunker complementa este README y debe consultarse para conocer con mayor detalle las reglas utilizadas durante la generación de fragmentos y metadatos.
+## Ejecución
 
----
+### Extracción
 
-## Tecnologías Utilizadas
+```bash
+uv run python -m src.extractor.main
+```
 
-- Python 3.10+
-- uv
-- FAISS
-- Embeddings semánticos
-- Procesamiento de lenguaje natural (NLP)
+Documentación:
 
----
+[`docs/extractor.md`](docs/extractor.md)
 
-## Autores
+### Generación de chunks y metadata
 
-Proyecto desarrollado para el **CODEFEST AD ASTRA**.
+```bash
+uv run python -m src.chunker.build_metadata
+```
+
+Documentación:
+
+[`docs/chunker.md`](docs/chunker.md)
+
+### Construcción del grafo
+
+```bash
+uv run python -m src.graph.build_graph
+```
+
+Documentación:
+
+[`docs/graph.md`](docs/graph.md)
+
+### Construcción del diccionario
+
+```bash
+uv run python -m src.search_engine.build_dictionary
+```
+
+Documentación:
+
+[`docs/search_engine.md`](docs/search_engine.md)
+
+### Generador principal
+
+```bash
+uv run python entrega/generador.py
+```
+
+Este comando ejecuta el punto de entrada principal ubicado en `entrega/generador.py`.
+
+## Ejecución completa
+
+Para ejecutar las etapas principales en orden:
+
+```bash
+uv sync
+
+uv run python -m src.extractor.main
+
+uv run python -m src.chunker.build_metadata
+
+uv run python -m src.graph.build_graph
+
+uv run python -m src.search_engine.build_dictionary
+
+uv run python entrega/generador.py
+```
+
+Durante el desarrollo no es necesario ejecutar todas las etapas cuando únicamente se está modificando un módulo aislado.
+
+La documentación de cada módulo especifica sus responsabilidades, archivos relacionados y consideraciones para modificar su implementación.
+
+## Pruebas
+
+Las pruebas se encuentran en:
+
+```text
+tests/
+```
+
+Las pruebas y scripts del repositorio deben ejecutarse utilizando el entorno administrado por `uv`.
+
+La estructura concreta de pruebas debe mantenerse alineada con los módulos ubicados en `src/`.
+
+## Entrega
+
+El directorio `entrega/` contiene los archivos requeridos por el proceso de entrega.
+
+```text
+entrega/
+├── base_vectorial/
+│   ├── encoder_bge-m3/
+│   │   ├── index.faiss
+│   │   └── metadata.jsonl
+│   └── encoder_e5/
+│       ├── index.faiss
+│       └── metadata.jsonl
+├── grafo/
+│   └── grafo.graphml
+├── generador.py
+├── informe_tecnico.pdf
+└── resultados.jsonl
+```
+
+### Archivos principales
+
+#### `entrega/generador.py`
+
+Punto de entrada principal de la entrega.
+
+Se ejecuta mediante:
+
+```bash
+uv run python entrega/generador.py
+```
+
+#### `entrega/base_vectorial/`
+
+Contiene los directorios de las bases vectoriales utilizadas por el generador.
+
+Cada encoder dispone de:
+
+```text
+index.faiss
+metadata.jsonl
+```
+
+#### `entrega/grafo/grafo.graphml`
+
+Archivo GraphML incluido dentro de la estructura de entrega.
+
+#### `entrega/informe_tecnico.pdf`
+
+Informe técnico incluido como parte de los archivos de entrega.
+
+#### `entrega/resultados.jsonl`
+
+Archivo generado por el punto de entrada principal.
+
+## Navegación rápida
+
+* Código fuente: [`src/`](src/)
+* Documentación: [`docs/`](docs/)
+* Pruebas: [`tests/`](tests/)
+* Entrega: [`entrega/`](entrega/)
+* Configuración: [`pyproject.toml`](pyproject.toml)
+
+
+
+
+
