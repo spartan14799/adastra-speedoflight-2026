@@ -29,7 +29,7 @@ def cargar_grafo():
 # ==============================================================================
 def test_integridad_y_estructura():
     print("\n" + "=" * 60)
-    print(" 🧪 TEST 1: INTEGRIDAD Y ESTRUCTURA DEL GRAFO")
+    print("TEST 1: INTEGRIDAD Y ESTRUCTURA DEL GRAFO")
     print("=" * 60)
 
     G = cargar_grafo()
@@ -37,8 +37,8 @@ def test_integridad_y_estructura():
     num_nodos = G.number_of_nodes()
     num_aristas = G.number_of_edges()
 
-    print(f"• Total Nodos (Entidades): {num_nodos:,}")
-    print(f"• Total Aristas (Relaciones): {num_aristas:,}")
+    print(f"Total Nodos (Entidades): {num_nodos:,}")
+    print(f"Total Aristas (Relaciones): {num_aristas:,}")
 
     # Validaciones básicas de tamaño
     assert num_nodos > 0, "El grafo no contiene nodos."
@@ -55,9 +55,9 @@ def test_integridad_y_estructura():
 
     print(f"• Estado de Metadatos Obligatorios (chunk_id, doc_id, relation):")
     if not campos_faltantes:
-        print("  ✅ CORRECTO: Todas las aristas evaluadas contienen la metadata requerida.")
+        print("CORRECTO: Todas las aristas evaluadas contienen la metadata requerida.")
     else:
-        print(f"  ❌ ERROR: Faltan metadatos en algunas aristas: {campos_faltantes}")
+        print(f"ERROR: Faltan metadatos en algunas aristas: {campos_faltantes}")
 
     assert len(campos_faltantes) == 0, f"Aristas sin metadata requerida: {campos_faltantes}"
 
@@ -67,7 +67,7 @@ def test_integridad_y_estructura():
 # ==============================================================================
 def test_calidad_semantica():
     print("\n" + "=" * 60)
-    print(" 🧪 TEST 2: CALIDAD SEMÁNTICA Y DENSIDAD DE ENTIDADES")
+    print("TEST 2: CALIDAD SEMÁNTICA Y DENSIDAD DE ENTIDADES")
     print("=" * 60)
 
     G = cargar_grafo()
@@ -101,7 +101,7 @@ def test_calidad_semantica():
 # ==============================================================================
 def test_aporte_a_queries():
     print("\n" + "=" * 60)
-    print(" 🧪 TEST 3: CAPACIDAD DE APORTE Y SIMULACIÓN DE CONSULTAS")
+    print("TEST 3: CAPACIDAD DE APORTE Y SIMULACIÓN DE CONSULTAS")
     print("=" * 60)
 
     G = cargar_grafo()
@@ -123,17 +123,17 @@ def test_aporte_a_queries():
     print("• Simulación de recuperación de Chunks desde el Grafo:")
 
     for query in queries_prueba:
-        # 1. Buscar coincidencias de la query en las entidades del grafo
+        # Buscar coincidencias de la query en las entidades del grafo
         nodos_coincidentes = [
             n for n in G.nodes() 
             if query.lower() in str(n).lower()
         ]
 
         if not nodos_coincidentes:
-            print(f"  ❌ Query '{query}': No halló nodos explícitos en el grafo.")
+            print(f"Query '{query}': No halló nodos explícitos en el grafo.")
             continue
 
-        # 2. Obtener vecinos a 1 salto de distancia y recuperar sus chunk_ids
+        #Obtener vecinos a 1 salto de distancia y recuperar sus chunk_ids
         chunks_asociados = set()
         for nodo in nodos_coincidentes[:5]:  # Tomar los primeros 5 nodos coincidentes
             vecinos = list(G.neighbors(nodo))
@@ -146,11 +146,11 @@ def test_aporte_a_queries():
         if chunks_asociados:
             exitos_busqueda += 1
             print(
-                f"  ✅ Query '{query}': Coincidió con {len(nodos_coincidentes)} entidades -> "
+                f"Query '{query}': Coincidió con {len(nodos_coincidentes)} entidades -> "
                 f"Aporta {len(chunks_asociados)} chunk_ids para RRF."
             )
         else:
-            print(f"  ⚠️ Query '{query}': Entidad encontrada sin chunk_id asociado.")
+            print(f"Query '{query}': Entidad encontrada sin chunk_id asociado.")
 
     print(f"\n• Tasa de resolución en simulación: {exitos_busqueda}/{len(queries_prueba)} queries.")
     
@@ -165,8 +165,8 @@ if __name__ == "__main__":
         test_calidad_semantica()
         test_aporte_a_queries()
         print("\n" + "=" * 60)
-        print(" 🎉 ¡TODAS LAS PRUEBAS DEL GRAFO FUERON SUPERADAS EXITOSAMENTE!")
+        print("¡TODAS LAS PRUEBAS DEL GRAFO FUERON SUPERADAS EXITOSAMENTE!")
         print("=" * 60 + "\n")
     except AssertionError as e:
-        print(f"\n❌ PRUEBA FALLIDA: {e}\n")
+        print(f"\nPRUEBA FALLIDA: {e}\n")
         sys.exit(1)
