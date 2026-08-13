@@ -271,7 +271,7 @@ Archivo generado por el punto de entrada principal.
 ## Navegación rápida
 
 * Código fuente: [`src/`](src/)
-* Documentación: [`docs/README.md`](docs/README.md)
+* Documentación: [`docs/`](docs/)
 * Pruebas: [`tests/`](tests/)
 * Entrega: [`entrega/`](entrega/)
 * Configuración: [`pyproject.toml`](pyproject.toml)
